@@ -2,9 +2,10 @@ name: Release
 
 # Tag `v*` (ex.: v0.1.0) → gera o instalador e publica uma GitHub Release.
 # Rodar manualmente (workflow_dispatch) só gera o instalador como artefato.
+# Gatilho por tag desativado por enquanto; só roda manualmente.
 on:
-  push:
-    tags: ['v*']
+  # push:
+  #   tags: ['v*']
   workflow_dispatch:
 
 permissions:
