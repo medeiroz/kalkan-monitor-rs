@@ -1,11 +1,17 @@
 name: CI
 
-# Automatic triggers are disabled for now; manual runs only.
+# Runs the tests on every push to main and on every pull request; can also be
+# started manually.
 on:
-  # push:
-  #   branches: [main]
-  # pull_request:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
+
+# A newer run for the same ref supersedes an in-progress one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
