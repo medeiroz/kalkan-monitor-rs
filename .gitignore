@@ -1,1 +1,5 @@
 /target
+
+# Artefatos de build do sidecar .NET
+sidecar/**/bin/
+sidecar/**/obj/

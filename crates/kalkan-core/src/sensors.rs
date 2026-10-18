@@ -324,18 +324,159 @@ mod hwinfo_shm {
     }
 }
 
-/// Fonte de sensores do Windows: CPU/RAM do `sysinfo`, temperatura e fan do
-/// HWiNFO (ver [`parse_hwinfo`]). Quando a SHM do HWiNFO não está disponível,
-/// temperatura/fan ficam `None` (sem erro).
+// ============================================================================
+// Backend autossuficiente — sidecar LibreHardwareMonitor (`kalkan-sensord.exe`)
+// ============================================================================
+//
+// Caminho principal (self-contained, como o original): um processo auxiliar
+// .NET que carrega o LibreHardwareMonitor (motor + driver de kernel próprio) e
+// emite leituras como JSON por linha no stdout. Lemos essa saída. Fica ao lado
+// do executável (ou via env KALKAN_SENSORD). Quando o sidecar não está presente
+// ou não entrega dados, caímos no HWiNFO SHM e, por fim, em `None`.
+
+/// Extrai `(temp_c, fan_rpm)` de uma linha JSON do sidecar:
+/// `{"cpu_temp_c":42.0,"fan_rpm":2400}` (valores podem ser `null`).
+///
+/// Retorna `None` se a linha não for um objeto com a chave esperada.
+pub(crate) fn parse_sensor_line(line: &str) -> Option<(Option<f32>, Option<u32>)> {
+    let line = line.trim();
+    if !line.starts_with('{') || !line.contains("cpu_temp_c") {
+        return None;
+    }
+    let temp = json_num(line, "\"cpu_temp_c\"").map(|v| v as f32);
+    let fan = json_num(line, "\"fan_rpm\"").map(|v| v.round() as u32);
+    Some((temp, fan))
+}
+
+/// Lê o número associado a `key` num JSON simples e plano; `null` vira `None`.
+fn json_num(s: &str, key: &str) -> Option<f64> {
+    let after_key = &s[s.find(key)? + key.len()..];
+    let after_colon = &after_key[after_key.find(':')? + 1..];
+    let v = after_colon.trim_start();
+    let end = v.find([',', '}']).unwrap_or(v.len());
+    let tok = v[..end].trim();
+    if tok.eq_ignore_ascii_case("null") {
+        return None;
+    }
+    tok.parse::<f64>().ok()
+}
+
+#[cfg(windows)]
+mod sidecar {
+    use super::parse_sensor_line;
+    use std::io::{BufRead, BufReader};
+    use std::path::PathBuf;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    #[derive(Default, Clone, Copy)]
+    struct Shared {
+        temp_c: Option<f32>,
+        fan_rpm: Option<u32>,
+        at: Option<Instant>,
+    }
+
+    /// Processo sidecar em execução; encerrado no `Drop`.
+    pub struct Sidecar {
+        child: Child,
+        state: Arc<Mutex<Shared>>,
+    }
+
+    /// Resolve o caminho do `kalkan-sensord.exe`: env `KALKAN_SENSORD`, ao lado
+    /// do executável, ou caminhos de desenvolvimento no repositório.
+    fn resolve_path() -> Option<PathBuf> {
+        if let Some(p) = std::env::var_os("KALKAN_SENSORD") {
+            let p = PathBuf::from(p);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        let mut cands: Vec<PathBuf> = Vec::new();
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                cands.push(dir.join("kalkan-sensord.exe"));
+            }
+        }
+        cands.push(PathBuf::from(
+            "sidecar/kalkan-sensord/bin/publish-multi/kalkan-sensord.exe",
+        ));
+        cands.push(PathBuf::from(
+            "sidecar/kalkan-sensord/bin/Release/net8.0/win-x64/publish/kalkan-sensord.exe",
+        ));
+        cands.into_iter().find(|p| p.is_file())
+    }
+
+    impl Sidecar {
+        /// Spawna o sidecar e inicia a thread leitora; `None` se não existir.
+        pub fn spawn() -> Option<Self> {
+            let path = resolve_path()?;
+            let mut child = Command::new(&path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .ok()?;
+            let stdout = child.stdout.take()?;
+            let state = Arc::new(Mutex::new(Shared::default()));
+            let st = state.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    let Ok(line) = line else { break };
+                    if let Some((t, f)) = parse_sensor_line(&line) {
+                        if let Ok(mut s) = st.lock() {
+                            s.temp_c = t;
+                            s.fan_rpm = f;
+                            s.at = Some(Instant::now());
+                        }
+                    }
+                }
+            });
+            Some(Self { child, state })
+        }
+
+        /// Última leitura, se recente (≤ 5 s); senão `(None, None)`.
+        pub fn latest(&self) -> (Option<f32>, Option<u32>) {
+            if let Ok(s) = self.state.lock() {
+                if matches!(s.at, Some(at) if at.elapsed() < Duration::from_secs(5)) {
+                    return (s.temp_c, s.fan_rpm);
+                }
+            }
+            (None, None)
+        }
+    }
+
+    impl Drop for Sidecar {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+/// Fonte de sensores do Windows.
+///
+/// CPU/RAM load vêm do `sysinfo`. Temperatura e fan vêm, em ordem: do **sidecar
+/// LibreHardwareMonitor** (`kalkan-sensord.exe`, autossuficiente); senão do
+/// **HWiNFO Shared Memory** (se o HWiNFO estiver rodando); senão `None`.
+///
+/// Nota: ler MSR/Super-I/O exige um driver de kernel. Com a Integridade de
+/// Memória (HVCI) ligada, o driver do LibreHardwareMonitor (WinRing0) não
+/// carrega e temp/fan ficam `None` — nesse caso use o HWiNFO (driver compatível
+/// com HVCI) ou um driver compatível como o PawnIO. Ver `docs/sensors-windows.md`.
 #[cfg(windows)]
 pub struct WindowsSource {
     sys: SysinfoSource,
+    sidecar: Option<sidecar::Sidecar>,
 }
 
 #[cfg(windows)]
 impl WindowsSource {
     pub fn new() -> Self {
-        Self { sys: SysinfoSource::new() }
+        Self {
+            sys: SysinfoSource::new(),
+            sidecar: sidecar::Sidecar::spawn(),
+        }
     }
 }
 
@@ -350,13 +491,25 @@ impl Default for WindowsSource {
 impl SensorSource for WindowsSource {
     fn read(&mut self) -> Result<Reading> {
         let mut r = self.sys.read()?;
-        if let Some(hw) = hwinfo_shm::read() {
-            if let Some(t) = hw.temp_c {
-                r.cpu_temp_c = Some(t);
+
+        let (mut temp, mut fan) = match &self.sidecar {
+            Some(sc) => sc.latest(),
+            None => (None, None),
+        };
+
+        // Fallback HWiNFO para o que o sidecar não forneceu.
+        if temp.is_none() || fan.is_none() {
+            if let Some(hw) = hwinfo_shm::read() {
+                temp = temp.or(hw.temp_c);
+                fan = fan.or(hw.fan_rpm);
             }
-            if let Some(f) = hw.fan_rpm {
-                r.fan_rpm = Some(f);
-            }
+        }
+
+        if let Some(t) = temp {
+            r.cpu_temp_c = Some(t);
+        }
+        if let Some(f) = fan {
+            r.fan_rpm = Some(f);
         }
         Ok(r)
     }
@@ -421,5 +574,33 @@ mod tests {
         let s = parse_hwinfo(&buf);
         assert_eq!(s.temp_c, None);
         assert_eq!(s.fan_rpm, None);
+    }
+
+    #[test]
+    fn sidecar_line_parse_values() {
+        assert_eq!(
+            parse_sensor_line("{\"cpu_temp_c\":42.5,\"fan_rpm\":2400}"),
+            Some((Some(42.5), Some(2400)))
+        );
+    }
+
+    #[test]
+    fn sidecar_line_parse_nulls() {
+        assert_eq!(
+            parse_sensor_line("{\"cpu_temp_c\":null,\"fan_rpm\":null}"),
+            Some((None, None))
+        );
+    }
+
+    #[test]
+    fn sidecar_line_parse_partial_and_junk() {
+        // só temperatura
+        assert_eq!(
+            parse_sensor_line("{\"cpu_temp_c\":40,\"fan_rpm\":null}"),
+            Some((Some(40.0), None))
+        );
+        // linha inválida
+        assert_eq!(parse_sensor_line("iniciando..."), None);
+        assert_eq!(parse_sensor_line("{\"outra\":1}"), None);
     }
 }

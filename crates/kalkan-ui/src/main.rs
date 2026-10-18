@@ -158,7 +158,96 @@ fn update_display(ui: &AppWindow, m: Mapping, r: &Reading, frame_index: i32, sen
     ui.set_prev_sending(sending);
 }
 
+/// No Windows, garante que o app rode elevado (como o original): se não estiver,
+/// relança a si mesmo via UAC e encerra a instância atual. O processo elevado é
+/// o que consegue carregar o driver de kernel do sidecar de sensores. Se o
+/// usuário recusar o UAC, segue sem elevação (sensores caem no fallback).
+/// Defina `KALKAN_NO_ELEVATE=1` para desabilitar (desenvolvimento).
+#[cfg(windows)]
+fn ensure_elevated() {
+    use core::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+
+    const TOKEN_QUERY: u32 = 0x0008;
+    const TOKEN_ELEVATION: i32 = 20;
+    const SW_SHOWNORMAL: i32 = 1;
+
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn GetTokenInformation(
+            token: *mut c_void,
+            class: i32,
+            info: *mut c_void,
+            len: u32,
+            ret_len: *mut u32,
+        ) -> i32;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(h: *mut c_void) -> i32;
+    }
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut c_void,
+            op: *const u16,
+            file: *const u16,
+            params: *const u16,
+            dir: *const u16,
+            show: i32,
+        ) -> *mut c_void;
+    }
+
+    // SAFETY: chamadas FFI padrão; tratamos retornos e fechamos o token.
+    unsafe {
+        let mut token: *mut c_void = core::ptr::null_mut();
+        let mut elevated = false;
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) != 0 {
+            let mut elev: u32 = 0;
+            let mut ret_len: u32 = 0;
+            if GetTokenInformation(
+                token,
+                TOKEN_ELEVATION,
+                &mut elev as *mut u32 as *mut c_void,
+                4,
+                &mut ret_len,
+            ) != 0
+            {
+                elevated = elev != 0;
+            }
+            CloseHandle(token);
+        }
+        if elevated || std::env::var_os("KALKAN_NO_ELEVATE").is_some() {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else { return };
+        let mut file: Vec<u16> = exe.as_os_str().encode_wide().collect();
+        file.push(0);
+        let mut op: Vec<u16> = "runas".encode_utf16().collect();
+        op.push(0);
+        let r = ShellExecuteW(
+            core::ptr::null_mut(),
+            op.as_ptr(),
+            file.as_ptr(),
+            core::ptr::null(),
+            core::ptr::null(),
+            SW_SHOWNORMAL,
+        );
+        // ShellExecuteW retorna > 32 em sucesso: a instância elevada assumiu.
+        if (r as isize) > 32 {
+            std::process::exit(0);
+        }
+        // Recusado/falhou: segue sem elevação.
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_elevated() {}
+
 fn main() -> anyhow::Result<()> {
+    ensure_elevated();
     let ui = AppWindow::new()?;
 
     // Atalho de teste: KALKAN_PAGE=0|1|2 abre direto numa tela.
