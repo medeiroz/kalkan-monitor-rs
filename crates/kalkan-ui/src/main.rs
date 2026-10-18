@@ -7,6 +7,9 @@
 //! A matemática de clamp/arredondamento da prévia vive aqui (não no Slint) para
 //! bater exatamente com o que `kalkan-core` serializa no frame.
 
+// Em release, app de janela (sem console atrás); em debug o console fica, para logs.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;

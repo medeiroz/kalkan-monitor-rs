@@ -665,8 +665,14 @@ mod sidecar {
     impl Sidecar {
         /// Spawna o sidecar e inicia a thread leitora; `None` se não existir.
         pub fn spawn() -> Option<Self> {
+            use std::os::windows::process::CommandExt;
+            // Sem isto, o Windows abre uma janela de console para o sidecar
+            // quando o pai é um app de janela (a UI).
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
             let path = resolve_path()?;
             let mut child = Command::new(&path)
+                .creation_flags(CREATE_NO_WINDOW)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
@@ -711,33 +717,34 @@ mod sidecar {
 
 /// Fonte de sensores do Windows.
 ///
-/// CPU/RAM load vêm do `sysinfo`. Temperatura e fan vêm, em ordem: do **motor
-/// HWiNFO do original** (`config.dat`, funciona sob HVCI; exige admin); senão do
-/// **sidecar LibreHardwareMonitor** (`kalkan-sensord.exe`); senão do **HWiNFO
-/// Shared Memory** (se o HWiNFO estiver rodando); senão `None`.
-///
-/// Nota: ler MSR/Super-I/O exige um driver de kernel. Com a Integridade de
-/// Memória (HVCI) ligada, o driver do LibreHardwareMonitor (WinRing0) não
-/// carrega e temp/fan ficam `None` — nesse caso use o HWiNFO (driver compatível
-/// com HVCI) ou um driver compatível como o PawnIO. Ver `docs/sensors-windows.md`.
+/// CPU/RAM load vêm do `sysinfo`. Temperatura e fan vêm, em ordem: do **sidecar
+/// LibreHardwareMonitor** (`kalkan-sensord.exe`, com o driver PawnIO — funciona
+/// sob HVCI); senão do **motor HWiNFO do app original** (`config.dat`, se
+/// instalado); senão do **HWiNFO Shared Memory** (se o HWiNFO estiver rodando);
+/// senão `None`. Ver `docs/sensors-windows.md`.
 #[cfg(windows)]
 pub struct WindowsSource {
     sys: SysinfoSource,
-    hwinfo: Option<hwinfo_dll::HwinfoSource>,
     sidecar: Option<sidecar::Sidecar>,
+    started: std::time::Instant,
+    hwinfo: Option<hwinfo_dll::HwinfoSource>,
+    hwinfo_tried: bool,
 }
+
+/// Quanto esperar o sidecar entregar a primeira leitura antes de recorrer ao
+/// motor HWiNFO (o LibreHardwareMonitor leva alguns segundos para abrir).
+#[cfg(windows)]
+const SIDECAR_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[cfg(windows)]
 impl WindowsSource {
     pub fn new() -> Self {
-        // O motor HWiNFO do original funciona sob HVCI; com ele, o sidecar
-        // (LibreHardwareMonitor) nem é iniciado.
-        let hwinfo = hwinfo_dll::HwinfoSource::new().ok();
-        let sidecar = if hwinfo.is_none() { sidecar::Sidecar::spawn() } else { None };
         Self {
             sys: SysinfoSource::new(),
-            hwinfo,
-            sidecar,
+            sidecar: sidecar::Sidecar::spawn(),
+            started: std::time::Instant::now(),
+            hwinfo: None,
+            hwinfo_tried: false,
         }
     }
 }
@@ -754,16 +761,28 @@ impl SensorSource for WindowsSource {
     fn read(&mut self) -> Result<Reading> {
         let mut r = self.sys.read()?;
 
-        let (mut temp, mut fan) = match (&mut self.hwinfo, &self.sidecar) {
-            (Some(hw), _) => {
-                let s = hw.read();
-                (s.temp_c, s.fan_rpm)
-            }
-            (None, Some(sc)) => sc.latest(),
-            (None, None) => (None, None),
+        let (mut temp, mut fan) = match &self.sidecar {
+            Some(sc) => sc.latest(),
+            None => (None, None),
         };
 
-        // Fallback HWiNFO para o que o sidecar não forneceu.
+        // Sidecar ausente, ou sem dados após a carência (ex.: HVCI sem PawnIO):
+        // tenta uma vez o motor HWiNFO do app original.
+        let sidecar_silent = self.sidecar.is_none() || self.started.elapsed() > SIDECAR_GRACE;
+        if temp.is_none() && fan.is_none() && sidecar_silent && !self.hwinfo_tried {
+            self.hwinfo_tried = true;
+            self.hwinfo = hwinfo_dll::HwinfoSource::new().ok();
+            if self.hwinfo.is_some() {
+                self.sidecar = None; // encerra o sidecar inútil
+            }
+        }
+        if let Some(hw) = &mut self.hwinfo {
+            let s = hw.read();
+            temp = temp.or(s.temp_c);
+            fan = fan.or(s.fan_rpm);
+        }
+
+        // Fallback HWiNFO Shared Memory para o que ainda faltar.
         if temp.is_none() || fan.is_none() {
             if let Some(hw) = hwinfo_shm::read() {
                 temp = temp.or(hw.temp_c);

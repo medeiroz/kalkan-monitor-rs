@@ -1,0 +1,46 @@
+name: Release
+
+# Tag `v*` (ex.: v0.1.0) → gera o instalador e publica uma GitHub Release.
+# Rodar manualmente (workflow_dispatch) só gera o instalador como artefato.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Gera o instalador
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.0.$env:GITHUB_RUN_NUMBER" }
+          ./installer/build.ps1 -Version $v
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: target/installer/KalkanMonitor-Setup-*.exe
+
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: target/installer/KalkanMonitor-Setup-*.exe
+          generate_release_notes: true

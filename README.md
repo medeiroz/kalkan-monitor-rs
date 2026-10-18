@@ -37,9 +37,33 @@ crates/
   kalkan-core/   # núcleo: transporte serial, sensores, protocolo 1.3 completo
   kalkan-cli/    # utilitário `kalkan` (list, sensors, frame, send, hwinfo, hid)
   kalkan-ui/     # dashboard moderno (Slint, tema claro) → bin `kalkan-monitor`
+sidecar/
+  kalkan-sensord/ # sensores no Windows via LibreHardwareMonitor (.NET)
+installer/        # instalador Windows (Inno Setup) + build.ps1
 docs/
   protocol.md    # achados da engenharia reversa (protocolo 1.3 reconstruído)
 ```
+
+## Instalar (Windows)
+
+Baixe o `KalkanMonitor-Setup-<versão>.exe` em
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs/releases). Ele instala o
+dashboard, o sidecar de sensores e o driver **PawnIO** (necessário para ler
+temperatura/fan, inclusive com a Integridade de Memória ligada). Nada mais a
+instalar à parte.
+
+Para gerar o instalador localmente: `./installer/build.ps1 -Version 0.1.0`
+(precisa de Rust, .NET 8 SDK e Inno Setup 6).
+
+### Publicar uma versão
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+O GitHub Actions (`.github/workflows/release.yml`) gera o instalador e cria a
+Release com ele anexado. Todo push/PR roda os testes em Windows, Linux e macOS
+(`ci.yml`).
 
 ## Compilar e rodar
 
@@ -54,10 +78,10 @@ cargo run -p kalkan-ui              # abre o dashboard
 cargo test                          # testes do protocolo + sensores (vetores de regressão)
 ```
 
-Sensores no Windows: com o app original da Kalkan instalado, temp/fan vêm do
-**motor HWiNFO dele** (`config.dat`), sem nada a mais — funciona até com HVCI.
-Sem o app original, compile o sidecar .NET e deixe `kalkan-sensord.exe` ao lado
-do executável (ver [`docs/sensors-windows.md`](docs/sensors-windows.md)):
+Sensores no Windows (em dev): compile o sidecar .NET e tenha o PawnIO instalado
+(o instalador cuida disso; o LibreHardwareMonitor também o instala). Se o app
+original da Kalkan estiver instalado, o `config.dat` dele serve de fallback.
+Ver [`docs/sensors-windows.md`](docs/sensors-windows.md):
 
 ```bash
 dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
@@ -74,12 +98,12 @@ dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
 - [x] UI moderna (Slint, tema claro): cards de CPU / temperatura / fan, chip de
       status e dispositivo. Cadência fixa de **1 s** (igual ao original; sem
       seletor de frequência) e descoberta por serial.
-- [x] **Backend de sensores no Windows**: temperatura e fan, em ordem, do **motor
-      HWiNFO do app original** (`config.dat`, chamado por ordinal como o `.exe`;
-      funciona com HVCI), do **sidecar LibreHardwareMonitor** (`kalkan-sensord`;
-      não funciona com HVCI) e do **HWiNFO Shared Memory**. CPU/RAM load vêm do
-      `sysinfo`. A UI se auto-eleva (UAC), como o original.
-      Ver [`docs/sensors-windows.md`](docs/sensors-windows.md).
+- [x] **Backend de sensores no Windows**: temperatura e fan, em ordem, do
+      **sidecar LibreHardwareMonitor + PawnIO** (`kalkan-sensord`; funciona com
+      HVCI), do **motor HWiNFO do app original** (`config.dat`, se instalado) e do
+      **HWiNFO Shared Memory**. CPU/RAM load vêm do `sysinfo`. A UI se auto-eleva
+      (UAC), como o original. Ver [`docs/sensors-windows.md`](docs/sensors-windows.md).
+- [x] **Instalador** (Inno Setup, PawnIO embutido) e **CI/CD** no GitHub Actions.
 - [ ] Backends de sensor para Linux (lm-sensors/hwmon) e macOS (SMC) — temp/fan
       `--` nessas plataformas por ora (CPU load é real).
 - [x] **Envio ponta a ponta validado no hardware 1.3**: cooler em `1A86:484A`

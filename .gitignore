@@ -3,3 +3,6 @@
 # Artefatos de build do sidecar .NET
 sidecar/**/bin/
 sidecar/**/obj/
+
+# Log que o motor HWiNFO (config.dat) grava no diretório atual
+-debug.log
