@@ -4,6 +4,8 @@
 //!   kalkan list       Lista portas seriais (marca o cooler por VID/PID)
 //!   kalkan sensors    Mostra a leitura de sensores atual
 //!   kalkan frame      Monta e embaralha um frame do protocolo e imprime o hex
+//!   kalkan send [temp] [fan] [segundos]
+//!                     Envia valores fixos ao display (teste de hardware)
 //!   kalkan hid        Lista dispositivos HID (diagnóstico; a 1.3 não usa HID)
 //!
 //! Rode `kalkan list` na máquina em que o watercooler está plugado: a porta
@@ -18,9 +20,10 @@ fn main() -> Result<()> {
         "list" | "ports" => list(),
         "sensors" => sensors(),
         "frame" => frame(),
+        "send" => send(),
         "hid" => hid(),
         _ => {
-            eprintln!("uso: kalkan <list|sensors|frame|hid>");
+            eprintln!("uso: kalkan <list|sensors|frame|send|hid>");
             Ok(())
         }
     }
@@ -97,6 +100,42 @@ fn frame() -> Result<()> {
     println!("leitura  : temp {temp}°C  fan {fan} RPM  (a 1.3 não envia cpu_load)");
     println!("source   : {}", hex(&raw));
     println!("scramb   : {}", hex(&scr));
+    Ok(())
+}
+
+/// Teste de hardware: abre o display e envia um frame fixo a cada 1 s.
+///
+/// Valores fixos (padrão 42 °C / 1234 RPM) independem dos sensores, então o que
+/// aparecer no display confirma transporte + protocolo isoladamente. Também
+/// imprime qualquer byte que o display devolver (a 1.3 não deveria responder).
+fn send() -> Result<()> {
+    use kalkan_core::{build_frame, scramble, Transport};
+
+    let arg = |i: usize, default: u32| -> Result<u32> {
+        match std::env::args().nth(i) {
+            Some(s) => s.parse().map_err(|_| anyhow::anyhow!("argumento inválido: {s}")),
+            None => Ok(default),
+        }
+    };
+    let temp = arg(2, 42)?.min(255) as u8;
+    let fan = arg(3, 1234)?.min(0xFFFF) as u16;
+    let secs = arg(4, 15)?;
+
+    let mut t = kalkan_core::open_display()?;
+    let pkt = scramble(&build_frame(temp, fan));
+    println!("aberto   : {}", t.description());
+    println!("enviando : temp {temp}°C  fan {fan} RPM  → {}  ({secs}× a cada 1 s)", hex(&pkt));
+
+    let mut buf = [0u8; 64];
+    for i in 1..=secs {
+        let n = t.write(&pkt)?;
+        let got = t.read(&mut buf, Duration::from_millis(1000))?;
+        if got > 0 {
+            println!("  [{i:>3}] {n} bytes enviados, resposta: {}", hex(&buf[..got]));
+        } else {
+            println!("  [{i:>3}] {n} bytes enviados");
+        }
+    }
     Ok(())
 }
 

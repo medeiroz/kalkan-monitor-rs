@@ -35,7 +35,7 @@ Comparada à 1.2, a 1.3 é **mais simples** (detalhes em `docs/protocol.md`):
 ```
 crates/
   kalkan-core/   # núcleo: transporte serial, sensores, protocolo 1.3 completo
-  kalkan-cli/    # utilitário `kalkan` (list, sensors, frame, hid)
+  kalkan-cli/    # utilitário `kalkan` (list, sensors, frame, send, hid)
   kalkan-ui/     # dashboard moderno (Slint, tema claro) → bin `kalkan-monitor`
 docs/
   protocol.md    # achados da engenharia reversa (protocolo 1.3 reconstruído)
@@ -49,6 +49,7 @@ cargo run -p kalkan-ui              # abre o dashboard
 ./target/debug/kalkan list          # lista portas seriais — acha o cooler (★)
 ./target/debug/kalkan sensors       # leitura de sensores atual
 ./target/debug/kalkan frame         # monta+embaralha um frame e mostra o hex
+./target/debug/kalkan send 42 1234 15  # envia temp/fan fixos ao display por 15 s (teste de hardware)
 cargo test                          # testes do protocolo + sensores (vetores de regressão)
 ```
 
@@ -79,12 +80,15 @@ dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
       (driver compatível com HVCI). Ver [`docs/sensors-windows.md`](docs/sensors-windows.md).
 - [ ] Backends de sensor para Linux (lm-sensors/hwmon) e macOS (SMC) — temp/fan
       `--` nessas plataformas por ora (CPU load é real).
-- [ ] Envio ponta a ponta validado no hardware 1.3 (depende do cooler plugado;
-      a cadência é sempre 1 s para não sobrecarregar o display).
+- [x] **Envio ponta a ponta validado no hardware 1.3**: cooler em `1A86:484A`
+      (COM3), `kalkan send 42 1234` mostrou 42 °C / 1234 RPM no display. O
+      display não responde nada pela serial. Cadência sempre 1 s.
 
-## Próximo passo (depende do hardware)
+## Testando o display
 
-Rodar `kalkan list` na máquina com o cooler 1.3 plugado e confirmar que a porta
-dele aparece marcada com ★ (VID/PID casando). Com a porta certa, `open_display()`
-abre e o envio de frames fica ativo ponta a ponta — o protocolo já está pronto e
-testado offline.
+```bash
+./target/debug/kalkan list             # a porta do cooler aparece com ★
+./target/debug/kalkan send 42 1234 30  # o display deve mostrar 42 °C e 1234 RPM
+```
+
+Se nada mudar, feche o app original do Kalkan (ele pode estar segurando a porta).
