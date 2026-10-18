@@ -146,17 +146,27 @@ static class Program
     }
 
     // JSON string literal, ASCII-only: whatever the console code page, the Rust
-    // side always receives valid UTF-8.
+    // side always receives valid UTF-8. A lone UTF-16 surrogate (which some
+    // drivers leave in corrupted names) is not valid JSON text for the parser,
+    // so it is replaced by U+FFFD instead of being escaped as-is.
     static string Str(string text)
     {
         var sb = new StringBuilder("\"");
-        foreach (char c in text)
+        for (int i = 0; i < text.Length; i++)
         {
+            char c = text[i];
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                sb.Append("\\u").Append(((int)c).ToString("x4"))
+                  .Append("\\u").Append(((int)text[++i]).ToString("x4"));
+                continue;
+            }
             switch (c)
             {
                 case '"': sb.Append("\\\""); break;
                 case '\\': sb.Append("\\\\"); break;
                 case >= ' ' and <= '~': sb.Append(c); break;
+                case var _ when char.IsSurrogate(c): sb.Append("\\ufffd"); break;
                 default: sb.Append("\\u").Append(((int)c).ToString("x4")); break;
             }
         }

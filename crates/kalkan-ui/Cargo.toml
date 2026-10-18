@@ -12,6 +12,12 @@ path = "src/main.rs"
 kalkan-core = { path = "../kalkan-core" }
 slint = "1.8.0"
 anyhow.workspace = true
+dirs.workspace = true
 
 [build-dependencies]
 slint-build = "1.8.0"
+
+# System tray (Windows/macOS). On Linux it would need GTK/appindicator system
+# libraries, so the window close button quits there instead.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+tray-icon = { version = "0.26.1", default-features = false }

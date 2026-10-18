@@ -59,6 +59,20 @@ install separately.
 To build the installer locally: `./windows/installer/build.ps1 -Version 0.1.0`
 (needs Rust, .NET 8 SDK and Inno Setup 6).
 
+### Tray and start with the system
+
+- Closing the window keeps the app running in the **tray** (it keeps updating
+  the display). Left-click the icon to reopen it; right-click → **Close
+  monitor** quits. Opening the app again while it runs just shows the window.
+- **Settings → Start with the operating system** registers the app to start
+  hidden in the tray at login:
+  - Windows: a Task Scheduler task (`Kalkan Monitor`, at logon, highest
+    privileges), so it starts elevated without a UAC prompt. The uninstaller
+    removes it.
+  - macOS: a LaunchAgent in `~/Library/LaunchAgents`.
+  - Linux: an entry in `~/.config/autostart` (no tray on Linux yet: closing the
+    window quits there).
+
 ### Publishing a release
 
 ```bash

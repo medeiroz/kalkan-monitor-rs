@@ -77,6 +77,13 @@ Filename: "{code:PawnIOUninstaller}"; Parameters: "-uninstall -silent"; StatusMs
 Filename: "{tmp}\PawnIO_setup.exe"; Parameters: "-install -silent"; StatusMsg: "{cm:PawnIOInstalling}"; Flags: runhidden waituntilterminated; Check: PawnIONeeded
 Filename: "{app}\kalkan-monitor.exe"; Description: "{cm:LaunchProgram,Kalkan Monitor}"; Flags: nowait postinstall skipifsilent
 
+[UninstallRun]
+; The app may be running hidden in the tray; stop it (and its sensor sidecar)
+; so its files can be removed, then drop the "start with Windows" task.
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM kalkan-monitor.exe"; Flags: runhidden waituntilterminated; RunOnceId: "KillApp"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM kalkan-sensord.exe"; Flags: runhidden waituntilterminated; RunOnceId: "KillSidecar"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""Kalkan Monitor"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteTask"
+
 [Code]
 const
   PawnIOKey = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO';
@@ -149,4 +156,15 @@ begin
     else
       Result := Result + NewLine + NewLine + ExpandConstant('{cm:PawnIOReadyInstall}');
   end;
+end;
+
+{ An update may find the app running hidden in the tray (elevated, so the
+  Restart Manager may not close it): stop it and its sidecar before copying. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM kalkan-monitor.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM kalkan-sensord.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Result := '';
 end;

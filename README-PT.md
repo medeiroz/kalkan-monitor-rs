@@ -58,6 +58,20 @@ instalar à parte.
 Para gerar o instalador localmente: `./windows/installer/build.ps1 -Version 0.1.0`
 (precisa de Rust, .NET 8 SDK e Inno Setup 6).
 
+### Bandeja e iniciar com o sistema
+
+- Fechar a janela mantém o app rodando na **bandeja** (o display continua sendo
+  atualizado). Clique com o botão esquerdo no ícone para reabrir; botão direito
+  → **Close monitor** encerra. Abrir o app de novo enquanto ele roda só mostra
+  a janela.
+- **Settings → Start with the operating system** registra o app para iniciar
+  escondido na bandeja no login:
+  - Windows: uma tarefa agendada (`Kalkan Monitor`, no logon, privilégios mais
+    altos), então ele inicia elevado sem prompt do UAC. O desinstalador a remove.
+  - macOS: um LaunchAgent em `~/Library/LaunchAgents`.
+  - Linux: uma entrada em `~/.config/autostart` (ainda sem bandeja no Linux:
+    lá, fechar a janela encerra o app).
+
 ### Publicar uma versão
 
 ```bash

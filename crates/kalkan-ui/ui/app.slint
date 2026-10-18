@@ -73,10 +73,10 @@ component NavItem inherits Rectangle {
 component StatusPill inherits Rectangle {
     in property <ConnState> state;
     property <string> label:
-        state == ConnState.connected ? "connected"
-        : state == ConnState.connecting ? "connecting…"
-        : state == ConnState.error ? "connection error"
-        : "disconnected";
+        state == ConnState.connected ? "Connected"
+        : state == ConnState.connecting ? "Connecting…"
+        : state == ConnState.error ? "Connection error"
+        : "Disconnected";
     property <color> tone:
         state == ConnState.connected ? Palette.ok
         : state == ConnState.connecting ? Palette.warn
@@ -223,9 +223,9 @@ component DisplayPreview inherits Rectangle {
         Rectangle { vertical-stretch: 1; }
         HorizontalLayout {
             alignment: space-between;
-            Text { text: "frame #" + root.frame-index; color: Palette.lcd-dim; font-size: 12px; }
+            Text { text: "Frame #" + root.frame-index; color: Palette.lcd-dim; font-size: 12px; }
             Text {
-                text: root.sending ? "● sending" : "○ offline preview";
+                text: root.sending ? "● Sending" : "○ Offline preview";
                 color: root.sending ? Palette.teal : Palette.lcd-dim;
                 font-size: 12px;
                 font-weight: 700;
@@ -235,12 +235,22 @@ component DisplayPreview inherits Rectangle {
 }
 
 // ---------------------------------------------------------------- select
+// One entry of a select: two text lines, the live value on the right and an
+// optional group header (shown above the first entry of each group).
+export struct SourceItem {
+    primary: string,
+    secondary: string,
+    group: string,
+    value: string,
+    header: bool,
+}
+
 component Select inherits Rectangle {
-    in property <[string]> model;
+    in property <[SourceItem]> model;
     in-out property <int> current-index: 0;
     callback changed(int);
 
-    height: 44px;
+    height: 52px;
     border-radius: 10px;
     background: touch.has-hover ? Palette.surface-2 : Palette.surface;
     border-width: 1px;
@@ -250,14 +260,32 @@ component Select inherits Rectangle {
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
-        spacing: 8px;
-        Text {
-            text: root.current-index >= 0 ? root.model[root.current-index] : "";
-            color: Palette.ink;
-            font-size: 14px;
-            font-weight: 600;
-            vertical-alignment: center;
+        spacing: 10px;
+        VerticalLayout {
             horizontal-stretch: 1;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: root.current-index >= 0 ? root.model[root.current-index].primary : "";
+                color: Palette.ink;
+                font-size: 14px;
+                font-weight: 600;
+                overflow: elide;
+            }
+            if root.current-index >= 0 && root.model[root.current-index].secondary != "" : Text {
+                text: root.model[root.current-index].secondary;
+                color: Palette.muted;
+                font-size: 12px;
+                font-weight: 500;
+                overflow: elide;
+            }
+        }
+        Text {
+            text: root.current-index >= 0 ? root.model[root.current-index].value : "";
+            color: Palette.accent;
+            font-size: 14px;
+            font-weight: 700;
+            vertical-alignment: center;
         }
         VerticalLayout {
             alignment: center;
@@ -276,37 +304,69 @@ component Select inherits Rectangle {
     popup := PopupWindow {
         x: 0;
         y: parent.height + 4px;
-        width: root.width;
-        height: min(root.model.length * 38px + 12px, 280px);
+        width: max(root.width, 400px);
+        height: min(list.preferred-height + 12px, 360px);
         Rectangle {
             background: Palette.surface;
             border-radius: 10px;
             border-width: 1px;
             border-color: Palette.line-strong;
             Flickable {
-                VerticalLayout {
+                list := VerticalLayout {
                     padding: 6px;
                     spacing: 2px;
-                    for item[idx] in root.model : Rectangle {
-                        height: 36px;
-                        border-radius: 8px;
-                        background: opt.has-hover ? Palette.accent-weak
-                                  : idx == root.current-index ? Palette.surface-2 : transparent;
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            Text {
-                                text: item;
-                                color: idx == root.current-index ? Palette.accent : Palette.ink;
-                                font-size: 14px;
-                                font-weight: idx == root.current-index ? 700 : 500;
-                                vertical-alignment: center;
-                                overflow: elide;
-                            }
+                    for item[idx] in root.model : VerticalLayout {
+                        if item.header : Text {
+                            text: item.group;
+                            color: Palette.faint;
+                            font-size: 11px;
+                            font-weight: 700;
+                            letter-spacing: 0.4px;
+                            height: 26px;
+                            vertical-alignment: bottom;
+                            horizontal-alignment: left;
                         }
-                        opt := TouchArea {
-                            clicked => {
-                                root.current-index = idx;
-                                root.changed(idx);
+                        Rectangle {
+                            height: 44px;
+                            border-radius: 8px;
+                            background: opt.has-hover ? Palette.accent-weak
+                                      : idx == root.current-index ? Palette.surface-2 : transparent;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 10px;
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 1px;
+                                    Text {
+                                        text: item.primary;
+                                        color: idx == root.current-index ? Palette.accent : Palette.ink;
+                                        font-size: 14px;
+                                        font-weight: idx == root.current-index ? 700 : 500;
+                                        overflow: elide;
+                                    }
+                                    if item.secondary != "" : Text {
+                                        text: item.secondary;
+                                        color: Palette.muted;
+                                        font-size: 12px;
+                                        font-weight: 500;
+                                        overflow: elide;
+                                    }
+                                }
+                                Text {
+                                    text: item.value;
+                                    color: Palette.muted;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            opt := TouchArea {
+                                clicked => {
+                                    root.current-index = idx;
+                                    root.changed(idx);
+                                }
                             }
                         }
                     }
@@ -319,7 +379,7 @@ component Select inherits Rectangle {
 // ---------------------------------------------------------------- slot editor
 component SlotEditor inherits VerticalLayout {
     in property <string> label;
-    in property <[string]> sources;
+    in property <[SourceItem]> sources;
     in-out property <int> current-index;
     in property <string> sends;        // "Sends: 52 (0–255)"
     in property <bool> warn;
@@ -346,6 +406,33 @@ component SlotEditor inherits VerticalLayout {
     }
 }
 
+// ---------------------------------------------------------------- toggle switch
+component Toggle inherits Rectangle {
+    in-out property <bool> checked;
+    callback toggled(bool);
+    width: 44px;
+    height: 24px;
+    border-radius: 12px;
+    background: checked ? Palette.accent : Palette.off;
+    animate background { duration: 120ms; }
+    Rectangle {
+        x: root.checked ? parent.width - self.width - 3px : 3px;
+        y: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: #ffffff;
+        animate x { duration: 120ms; easing: ease-out; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- window
 export component AppWindow inherits Window {
     title: "Kalkan Monitor";
@@ -362,28 +449,28 @@ export component AppWindow inherits Window {
     in property <float> cpu-load: 0;
     in property <string> cpu-load-str: "0";
     in property <int> cpu-level: 0;
-    in property <string> cpu-state: "normal";
+    in property <string> cpu-state: "Normal";
 
     in property <string> cpu-temp-str: "--";
     in property <float> temp-fraction: 0;
     in property <int> temp-level: 0;
-    in property <string> temp-state: "no reading";
+    in property <string> temp-state: "No reading";
 
     in property <string> fan-str: "--";
     in property <float> fan-fraction: 0;
     in property <int> fan-level: 0;
-    in property <string> fan-state: "no sensor on this platform";
+    in property <string> fan-state: "No sensor on this platform";
 
     // ---- connection ----
     in property <ConnState> conn-state: ConnState.disconnected;
-    in property <string> device-label: "no device";
+    in property <string> device-label: "No device";
     in property <string> device-detail: "";
     in property <string> hid-error: "";
 
     // ---- display config ----
-    in property <[string]> temp-sources;
-    in property <[string]> fan-sources;
-    in property <[string]> load-sources;
+    in property <[SourceItem]> temp-sources;
+    in property <[SourceItem]> fan-sources;
+    in property <[SourceItem]> load-sources;
     in-out property <int> temp-source-index: 0;
     in-out property <int> fan-source-index: 0;
     in-out property <int> load-source-index: 0;
@@ -403,6 +490,9 @@ export component AppWindow inherits Window {
     in property <bool> prev-sending: false;
 
     // ---- preferences ----
+    in-out property <bool> autostart: false;
+    in property <string> autostart-error: "";
+    callback autostart-toggled(bool);
 
     HorizontalLayout {
         // ============ sidebar ============
@@ -418,11 +508,12 @@ export component AppWindow inherits Window {
                     padding-bottom: 14px;
                     spacing: 2px;
                     Text { text: "KALKAN"; color: Palette.ink; font-size: 18px; font-weight: 800; letter-spacing: 1px; }
-                    Text { text: "monitor"; color: Palette.faint; font-size: 13px; font-weight: 600; }
+                    Text { text: "Monitor"; color: Palette.faint; font-size: 13px; font-weight: 600; }
                 }
                 NavItem { text: "Dashboard";      selected: root.active-page == 0; clicked => { root.active-page = 0; } }
                 NavItem { text: "Display";     selected: root.active-page == 1; clicked => { root.active-page = 1; } }
                 NavItem { text: "Device"; selected: root.active-page == 2; clicked => { root.active-page = 2; } }
+                NavItem { text: "Settings"; selected: root.active-page == 3; clicked => { root.active-page = 3; } }
 
                 Rectangle { vertical-stretch: 1; }
 
@@ -454,14 +545,15 @@ export component AppWindow inherits Window {
                     Text {
                         text: root.active-page == 0 ? "Dashboard"
                             : root.active-page == 1 ? "Cooler display"
-                            : "Device";
+                            : root.active-page == 2 ? "Device"
+                            : "Settings";
                         color: Palette.ink;
                         font-size: 22px;
                         font-weight: 800;
                         vertical-alignment: center;
                     }
                     Text {
-                        text: "● live · every 1 s";
+                        text: "● Live · every 1 s";
                         color: Palette.teal;
                         font-size: 13px;
                         font-weight: 600;
@@ -486,7 +578,7 @@ export component AppWindow inherits Window {
                             state-label: root.temp-state; tint: Palette.warm;
                         }
                         StatCard {
-                            label: "FAN / BOMBA"; value: root.fan-str; unit: "RPM";
+                            label: "FAN / PUMP"; value: root.fan-str; unit: "RPM";
                             fraction: root.fan-fraction; level: root.fan-level;
                             state-label: root.fan-state; tint: Palette.teal;
                         }
@@ -648,6 +740,60 @@ export component AppWindow inherits Window {
                             Text { text: "How to connect"; color: Palette.ink; font-size: 15px; font-weight: 800; }
                             Text {
                                 text: "Plug the watercooler into USB and run `kalkan list`: the port marked with ★ is the cooler (VID/PID 1F3A:0008 or 1A86:484A). The app opens the serial port and starts sending data to the display.";
+                                color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
+                            }
+                        }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // ============ SETTINGS ============
+                if root.active-page == 3 : VerticalLayout {
+                    spacing: 18px;
+                    Rectangle {
+                        background: Palette.surface;
+                        border-radius: 18px;
+                        border-width: 1px;
+                        border-color: Palette.line;
+                        VerticalLayout {
+                            padding: 22px;
+                            spacing: 6px;
+                            HorizontalLayout {
+                                spacing: 16px;
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 4px;
+                                    Text { text: "Start with the operating system"; color: Palette.ink; font-size: 15px; font-weight: 800; }
+                                    Text {
+                                        text: "Starts hidden in the tray when you log in and keeps the display updated. On Windows it uses a scheduled task, so it runs with administrator rights without a UAC prompt.";
+                                        color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Toggle {
+                                        checked <=> root.autostart;
+                                        toggled(on) => { root.autostart-toggled(on); }
+                                    }
+                                }
+                            }
+                            if root.autostart-error != "" : Text {
+                                text: root.autostart-error;
+                                color: Palette.danger; font-size: 12px; font-weight: 600; wrap: word-wrap;
+                            }
+                        }
+                    }
+                    Rectangle {
+                        background: Palette.surface;
+                        border-radius: 18px;
+                        border-width: 1px;
+                        border-color: Palette.line;
+                        VerticalLayout {
+                            padding: 22px;
+                            spacing: 6px;
+                            Text { text: "Tray"; color: Palette.ink; font-size: 15px; font-weight: 800; }
+                            Text {
+                                text: "Closing the window keeps Kalkan Monitor running in the tray. To quit, right-click the tray icon and choose \"Close monitor\".";
                                 color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
                             }
                         }

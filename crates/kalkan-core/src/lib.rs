@@ -8,6 +8,7 @@
 //! opened at 1 Mbps, 8N1, no flow control. There is no handshake.
 
 pub mod device;
+pub mod naming;
 pub mod protocol;
 pub mod selection;
 pub mod sensors;
@@ -20,7 +21,8 @@ pub use device::{
 };
 pub use protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
 pub use selection::{
-    fan_options, select_fan, select_temp, temp_options, FanSource, SourceOption, TempSource,
+    fan_options, same_layout, select_fan, select_temp, temp_options, FanSource, SourceOption,
+    TempSource,
 };
 pub use sensors::{default_source, Reading, SensorKind, SensorSource, SensorValue, SysinfoSource};
 pub use settings::Settings;

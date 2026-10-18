@@ -17,9 +17,15 @@ use std::time::Duration;
 use kalkan_core::{
     available_serial_ports, build_frame, default_source, fan_options, open_display, scramble,
     select_fan, select_temp, temp_options, FanSource, Reading, SerialTransport, Settings,
-    SensorValue, SourceOption, TempSource, Transport,
+    same_layout, SourceOption, TempSource, Transport,
 };
-use slint::{ModelRc, SharedString, Timer, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
+
+mod autostart;
+#[cfg(windows)]
+mod instance;
+#[cfg(any(windows, target_os = "macos"))]
+mod tray;
 
 slint::include_modules!();
 
@@ -33,39 +39,82 @@ struct Mapping {
     load: usize,
 }
 
-/// Options currently shown in the temperature and fan selectors.
+/// Options currently shown in the temperature and fan selectors, with the
+/// models bound to the UI.
 struct Options {
     temp: Vec<SourceOption<TempSource>>,
     fan: Vec<SourceOption<FanSource>>,
+    temp_model: Rc<VecModel<SourceItem>>,
+    fan_model: Rc<VecModel<SourceItem>>,
     /// Nothing pushed to the selectors yet.
     first: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { temp: Vec::new(), fan: Vec::new(), first: true }
+        Self {
+            temp: Vec::new(),
+            fan: Vec::new(),
+            temp_model: Rc::new(VecModel::default()),
+            fan_model: Rc::new(VecModel::default()),
+            first: true,
+        }
     }
 }
 
-fn labels<S>(opts: &[SourceOption<S>]) -> Vec<SharedString> {
-    opts.iter().map(|o| SharedString::from(o.label.as_str())).collect()
+/// UI rows for a list of options; a group header is flagged on the first row
+/// of each group.
+fn rows<S>(opts: &[SourceOption<S>]) -> Vec<SourceItem> {
+    let mut prev = "";
+    opts.iter()
+        .map(|o| {
+            let header = !o.group.is_empty() && o.group != prev;
+            prev = &o.group;
+            SourceItem {
+                primary: o.primary.as_str().into(),
+                secondary: o.secondary.as_str().into(),
+                group: o.group.as_str().into(),
+                value: o.value_text.as_str().into(),
+                header,
+            }
+        })
+        .collect()
+}
+
+/// Brings a model in line with new options. When only the live values changed
+/// the rows are updated in place, so an open popup keeps its scroll position
+/// and stays open; the model is only rebuilt when the set of entries changes.
+fn sync_model<S: PartialEq>(
+    model: &VecModel<SourceItem>,
+    old: &[SourceOption<S>],
+    new: &[SourceOption<S>],
+    rebuild: bool,
+) {
+    let new_rows = rows(new);
+    if rebuild || !same_layout(old, new) {
+        model.set_vec(new_rows);
+        return;
+    }
+    for (i, (o, n)) in old.iter().zip(new).enumerate() {
+        if o.value_text != n.value_text {
+            model.set_row_data(i, new_rows[i].clone());
+        }
+    }
 }
 
 /// Pushes the current options into the selectors, keeping each selection.
 ///
-/// A model is only replaced when its labels changed, so the popup is not
-/// rebuilt every second. The selected index follows the chosen source (a
-/// sensor id), not a position that shifts as sensors appear.
-fn refresh_options(ui: &AppWindow, m: &Mapping, opts: &mut Options, sensors: &[SensorValue]) {
-    let temp = temp_options(sensors, &m.temp);
-    let fan = fan_options(sensors, &m.fan);
-    let (tl, fl) = (labels(&temp), labels(&fan));
-    if opts.first || tl != labels(&opts.temp) {
-        ui.set_temp_sources(ModelRc::new(VecModel::from(tl)));
+/// The selected index follows the chosen source (a sensor id), not a position
+/// that shifts as sensors appear.
+fn refresh_options(ui: &AppWindow, m: &Mapping, opts: &mut Options, r: &Reading) {
+    let temp = temp_options(r, &m.temp);
+    let fan = fan_options(r, &m.fan);
+    if opts.first {
+        ui.set_temp_sources(opts.temp_model.clone().into());
+        ui.set_fan_sources(opts.fan_model.clone().into());
     }
-    if opts.first || fl != labels(&opts.fan) {
-        ui.set_fan_sources(ModelRc::new(VecModel::from(fl)));
-    }
+    sync_model(&opts.temp_model, &opts.temp, &temp, opts.first);
+    sync_model(&opts.fan_model, &opts.fan, &fan, opts.first);
     ui.set_temp_source_index(temp.iter().position(|o| o.source == m.temp).unwrap_or(0) as i32);
     ui.set_fan_source_index(fan.iter().position(|o| o.source == m.fan).unwrap_or(0) as i32);
     opts.temp = temp;
@@ -73,8 +122,18 @@ fn refresh_options(ui: &AppWindow, m: &Mapping, opts: &mut Options, sensors: &[S
     opts.first = false;
 }
 
-fn model(items: &[&str]) -> ModelRc<SharedString> {
-    let v: Vec<SharedString> = items.iter().map(|s| (*s).into()).collect();
+/// A plain list of entries without secondary text (the usage selector).
+fn plain_model(items: &[&str]) -> ModelRc<SourceItem> {
+    let v: Vec<SourceItem> = items
+        .iter()
+        .map(|s| SourceItem {
+            primary: (*s).into(),
+            secondary: SharedString::default(),
+            group: SharedString::default(),
+            value: SharedString::default(),
+            header: false,
+        })
+        .collect();
     ModelRc::new(VecModel::from(v))
 }
 
@@ -230,7 +289,7 @@ fn send_frame(ui: &AppWindow, port: &mut Option<SerialTransport>, pkt: &[u8]) {
         Err(e) => {
             *port = None;
             ui.set_conn_state(ConnState::Error);
-            ui.set_hid_error(format!("failed to send: {e}").into());
+            ui.set_hid_error(format!("Failed to send: {e}").into());
         }
     }
 }
@@ -304,11 +363,15 @@ fn ensure_elevated() {
         file.push(0);
         let mut op: Vec<u16> = "runas".encode_utf16().collect();
         op.push(0);
+        // Forward the arguments (e.g. `--tray`) to the elevated instance.
+        let args: Vec<String> = std::env::args().skip(1).map(|a| format!("\"{a}\"")).collect();
+        let mut params: Vec<u16> = args.join(" ").encode_utf16().collect();
+        params.push(0);
         let r = ShellExecuteW(
             core::ptr::null_mut(),
             op.as_ptr(),
             file.as_ptr(),
-            core::ptr::null(),
+            params.as_ptr(),
             core::ptr::null(),
             SW_SHOWNORMAL,
         );
@@ -342,8 +405,44 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Already running (e.g. hidden in the tray)? Bring it up instead. Checked
+    // before elevating, so reopening never shows a UAC prompt.
+    #[cfg(windows)]
+    if instance::signal_existing() {
+        return Ok(());
+    }
+
     ensure_elevated();
+    let start_hidden = std::env::args().any(|a| a == autostart::TRAY_ARG);
     let ui = AppWindow::new()?;
+
+    // Brings the window back (from the tray or from a second instance); safe
+    // to call from any thread.
+    let show = {
+        let ui_w = ui.as_weak();
+        move || {
+            let _ = ui_w.upgrade_in_event_loop(|ui| {
+                let _ = ui.show();
+                ui.window().set_minimized(false);
+            });
+        }
+    };
+    #[cfg(windows)]
+    instance::listen(show.clone());
+
+    // "Start with the operating system" (reflects the real OS registration).
+    ui.set_autostart(autostart::is_enabled());
+    {
+        let ui_w = ui.as_weak();
+        ui.on_autostart_toggled(move |on| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            match autostart::set_enabled(on) {
+                Ok(()) => ui.set_autostart_error("".into()),
+                Err(e) => ui.set_autostart_error(e.to_string().into()),
+            }
+            ui.set_autostart(autostart::is_enabled());
+        });
+    }
 
     // Test shortcut: KALKAN_PAGE=0|1|2 opens straight on a screen.
     if let Ok(p) = std::env::var("KALKAN_PAGE") {
@@ -352,7 +451,7 @@ fn main() -> anyhow::Result<()> {
 
     // The temperature and fan lists are filled from the sensors as they appear
     // (see `refresh_options`); usage is a fixed list.
-    ui.set_load_sources(model(&["CPU usage", "RAM usage", "GPU · no backend"]));
+    ui.set_load_sources(plain_model(&["CPU usage", "RAM usage", "GPU · no backend"]));
 
     // Best-effort discovery of the 1.3 display on the serial ports (VID/PID).
     match available_serial_ports() {
@@ -372,14 +471,14 @@ fn main() -> anyhow::Result<()> {
                 );
                 ui.set_conn_state(ConnState::Disconnected); // Connected only after the port is opened
             } else {
-                ui.set_device_label("no display recognized".into());
-                ui.set_device_detail("plug in the cooler and run `kalkan list`".into());
+                ui.set_device_label("No display recognized".into());
+                ui.set_device_detail("Plug in the cooler and run `kalkan list`".into());
                 ui.set_conn_state(ConnState::Disconnected);
             }
         }
         Err(e) => {
-            ui.set_device_label("serial unavailable".into());
-            ui.set_hid_error(format!("serial unavailable: {e}").into());
+            ui.set_device_label("Serial unavailable".into());
+            ui.set_hid_error(format!("Serial unavailable: {e}").into());
             ui.set_conn_state(ConnState::Error);
         }
     }
@@ -393,7 +492,7 @@ fn main() -> anyhow::Result<()> {
         load: 0,
     }));
     let options = Rc::new(RefCell::new(Options::default()));
-    refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &[]);
+    refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &Reading::default());
     let last = Rc::new(RefCell::new(Reading::default()));
     let frame = Rc::new(RefCell::new(0i32));
 
@@ -459,7 +558,7 @@ fn main() -> anyhow::Result<()> {
                 *last.borrow_mut() = reading.clone();
                 let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
                 if let Some(ui) = ui_w.upgrade() {
-                    refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading.sensors);
+                    refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading);
                     send_frame(&ui, &mut port, &display_frame(&mapping.borrow(), &reading));
                     update_dashboard(&ui, &mapping.borrow(), &reading);
                     let sending = ui.get_conn_state() == ConnState::Connected;
@@ -469,6 +568,46 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
-    ui.run()?;
+    // Tray icon: created once the event loop runs (required on macOS). The
+    // close button then hides the window instead of quitting; "Close monitor"
+    // in the tray menu quits. Without a tray (Linux, or if creating it fails)
+    // closing the window quits as usual.
+    #[cfg(any(windows, target_os = "macos"))]
+    let tray_icon: Rc<RefCell<Option<tray_icon::TrayIcon>>> = Rc::new(RefCell::new(None));
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        let (holder, ui_w, show) = (tray_icon.clone(), ui.as_weak(), show.clone());
+        Timer::single_shot(Duration::ZERO, move || match tray::create(show) {
+            Ok(t) => *holder.borrow_mut() = Some(t),
+            Err(e) => {
+                eprintln!("tray icon unavailable: {e}");
+                if let Some(ui) = ui_w.upgrade() {
+                    let _ = ui.show();
+                }
+            }
+        });
+    }
+    {
+        #[cfg(any(windows, target_os = "macos"))]
+        let has_tray = {
+            let t = tray_icon.clone();
+            move || t.borrow().is_some()
+        };
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let has_tray = || false;
+        ui.window().on_close_requested(move || {
+            if !has_tray() {
+                let _ = slint::quit_event_loop();
+            }
+            slint::CloseRequestResponse::HideWindow
+        });
+    }
+
+    // Started at logon: stay in the tray (only where there is one).
+    if !(start_hidden && cfg!(any(windows, target_os = "macos"))) {
+        ui.show()?;
+    }
+    slint::run_event_loop_until_quit()?;
+    let _ = show; // only used by the tray/instance hooks on some platforms
     Ok(())
 }
