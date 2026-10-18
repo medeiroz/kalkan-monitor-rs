@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use kalkan_core::{available_serial_ports, Reading, SensorSource, SysinfoSource};
+use kalkan_core::{available_serial_ports, default_source, Reading};
 use slint::{ModelRc, SharedString, Timer, VecModel};
 
 slint::include_modules!();
@@ -171,10 +171,6 @@ fn main() -> anyhow::Result<()> {
     ui.set_fan_sources(model(&["Bomba · sem backend", "Fan CPU · sem backend", "Fan gabinete · sem backend"]));
     ui.set_load_sources(model(&["Uso de CPU", "Uso de RAM", "GPU · sem backend"]));
 
-    // Opções de frequência de atualização (índice → intervalo).
-    ui.set_interval_options(model(&["0,5 s", "1 s", "2 s", "5 s"]));
-    ui.set_interval_index(1); // 1 s por padrão
-
     // Descoberta best-effort do display 1.3 nas portas seriais (VID/PID).
     match available_serial_ports() {
         Ok(ports) => {
@@ -230,49 +226,30 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Primeira amostra (descartada — sysinfo precisa de duas para o %CPU).
-    let source = Rc::new(RefCell::new(SysinfoSource::new()));
+    let source = Rc::new(RefCell::new(default_source()));
     let _ = source.borrow_mut().read();
 
-    // Timer reiniciável: `restart_timer(ms)` (re)agenda o laço com o intervalo dado.
-    let timer = Rc::new(Timer::default());
-    let restart_timer: Rc<dyn Fn(u64)> = {
-        let (timer, ui_w, source, mapping, last, frame) =
-            (timer.clone(), ui.as_weak(), source.clone(), mapping.clone(), last.clone(), frame.clone());
-        Rc::new(move |interval_ms: u64| {
-            let (ui_w, source, mapping, last, frame) =
-                (ui_w.clone(), source.clone(), mapping.clone(), last.clone(), frame.clone());
-            timer.start(
-                slint::TimerMode::Repeated,
-                Duration::from_millis(interval_ms),
-                move || {
-                    let Ok(reading) = source.borrow_mut().read() else { return };
-                    *last.borrow_mut() = reading.clone();
-                    let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
-                    if let Some(ui) = ui_w.upgrade() {
-                        update_dashboard(&ui, &reading);
-                        let sending = ui.get_conn_state() == ConnState::Connected;
-                        update_display(&ui, *mapping.borrow(), &reading, fi, sending);
-                    }
-                },
-            );
-        })
-    };
-
-    // Callback: usuário mudou a frequência → reinicia o timer com o novo intervalo.
+    // Intervalo fixo de 1 s, igual ao app original (sem seletor de frequência:
+    // a cadência PC → display é sempre a mesma).
+    let timer = Timer::default();
     {
-        let restart_timer = restart_timer.clone();
-        ui.on_interval_changed(move |idx| {
-            let ms = match idx {
-                0 => 500,
-                1 => 1000,
-                2 => 2000,
-                _ => 5000,
-            };
-            restart_timer(ms);
-        });
+        let (ui_w, source, mapping, last, frame) =
+            (ui.as_weak(), source.clone(), mapping.clone(), last.clone(), frame.clone());
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(1000),
+            move || {
+                let Ok(reading) = source.borrow_mut().read() else { return };
+                *last.borrow_mut() = reading.clone();
+                let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
+                if let Some(ui) = ui_w.upgrade() {
+                    update_dashboard(&ui, &reading);
+                    let sending = ui.get_conn_state() == ConnState::Connected;
+                    update_display(&ui, *mapping.borrow(), &reading, fi, sending);
+                }
+            },
+        );
     }
-
-    restart_timer(1000); // intervalo inicial (1 s, igual ao interval-index padrão)
 
     ui.run()?;
     Ok(())

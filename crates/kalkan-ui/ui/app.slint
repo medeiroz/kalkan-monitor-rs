@@ -399,9 +399,6 @@ export component AppWindow inherits Window {
     in property <bool> prev-sending: false;
 
     // ---- preferências ----
-    in property <[string]> interval-options;
-    in-out property <int> interval-index: 1;
-    callback interval-changed(int);
 
     HorizontalLayout {
         // ============ sidebar ============
@@ -460,7 +457,7 @@ export component AppWindow inherits Window {
                         vertical-alignment: center;
                     }
                     Text {
-                        text: "● ao vivo · a cada " + root.interval-options[root.interval-index];
+                        text: "● ao vivo · a cada 1 s";
                         color: Palette.teal;
                         font-size: 13px;
                         font-weight: 600;
@@ -634,40 +631,6 @@ export component AppWindow inherits Window {
                         HorizontalLayout {
                             padding-left: 16px;
                             Text { text: root.hid-error; color: Palette.danger; font-size: 13px; font-weight: 600; vertical-alignment: center; }
-                        }
-                    }
-                    Rectangle {
-                        height: 116px;
-                        background: Palette.surface;
-                        border-radius: 18px;
-                        border-width: 1px;
-                        border-color: Palette.line;
-                        VerticalLayout {
-                            padding: 22px;
-                            spacing: 14px;
-                            Text { text: "Preferências"; color: Palette.ink; font-size: 15px; font-weight: 800; }
-                            HorizontalLayout {
-                                spacing: 16px;
-                                VerticalLayout {
-                                    horizontal-stretch: 1;
-                                    alignment: center;
-                                    spacing: 4px;
-                                    Text { text: "Frequência de atualização"; color: Palette.ink; font-size: 13px; font-weight: 700; }
-                                    Text {
-                                        text: "Com que frequência os sensores são lidos e enviados ao display.";
-                                        color: Palette.muted; font-size: 12px; font-weight: 500; wrap: word-wrap;
-                                    }
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    width: 150px;
-                                    Select {
-                                        model: root.interval-options;
-                                        current-index <=> root.interval-index;
-                                        changed(i) => { root.interval-changed(i); }
-                                    }
-                                }
-                            }
                         }
                     }
                     Rectangle {

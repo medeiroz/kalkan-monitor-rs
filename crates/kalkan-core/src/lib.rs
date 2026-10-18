@@ -17,7 +17,7 @@ pub use device::{
     HidDeviceInfo, SerialDeviceInfo, DISPLAY_IDS,
 };
 pub use protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
-pub use sensors::{Reading, SensorSource, SysinfoSource};
+pub use sensors::{default_source, Reading, SensorSource, SysinfoSource};
 pub use transport::{HidTransport, SerialTransport, Transport};
 
 use anyhow::{anyhow, Result};

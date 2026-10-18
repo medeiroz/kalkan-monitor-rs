@@ -61,8 +61,7 @@ fn ids_help() -> String {
 }
 
 fn sensors() -> Result<()> {
-    use kalkan_core::SensorSource;
-    let mut src = kalkan_core::SysinfoSource::new();
+    let mut src = kalkan_core::default_source();
     // sysinfo precisa de duas amostras para o %CPU
     src.read()?;
     std::thread::sleep(Duration::from_millis(300));
@@ -82,9 +81,9 @@ fn sensors() -> Result<()> {
 /// Demonstra o protocolo 1.3 ponta a ponta sem hardware: lê os sensores, monta
 /// o frame de 5 bytes, aplica o XOR e imprime os dois buffers em hex.
 fn frame() -> Result<()> {
-    use kalkan_core::{build_frame, scramble, SensorSource};
+    use kalkan_core::{build_frame, scramble};
 
-    let mut src = kalkan_core::SysinfoSource::new();
+    let mut src = kalkan_core::default_source();
     src.read()?;
     std::thread::sleep(Duration::from_millis(300));
     let r = src.read()?;

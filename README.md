@@ -60,10 +60,16 @@ cargo test                          # testes do protocolo (inclui vetor de regre
 - [x] **Protocolo completo** 1.3 reconstruído da estática: frame de 5 bytes +
       XOR `0x02` (porte verificado contra o assembly, com vetor de regressão).
 - [x] UI moderna (Slint, tema claro): cards de CPU / temperatura / fan, chip de
-      status e dispositivo, atualização ~1 Hz; descoberta por serial.
-- [ ] Backends de sensor por SO (temp/fan): lm-sensors (Linux), SMC (macOS),
-      LibreHardwareMonitor (Windows). Hoje CPU load é real; temp/fan = `--`.
-- [ ] Envio ponta a ponta validado no hardware 1.3 (depende do cooler plugado).
+      status e dispositivo. Cadência fixa de **1 s** (igual ao original; sem
+      seletor de frequência) e descoberta por serial.
+- [x] **Backend de sensores no Windows**: temperatura e fan via **HWiNFO Shared
+      Memory** (`Global\HWiNFO_SENS_SM2`) — mesma fonte do app original. Exige o
+      HWiNFO rodando com "Shared Memory Support" ligado; sem ele, temp/fan ficam
+      `--` (sem erro). CPU/RAM load vêm do `sysinfo`.
+- [ ] Backends de sensor para Linux (lm-sensors) e macOS (SMC) — temp/fan `--`
+      nessas plataformas por ora (CPU load é real).
+- [ ] Envio ponta a ponta validado no hardware 1.3 (depende do cooler plugado;
+      a cadência é sempre 1 s para não sobrecarregar o display).
 
 ## Próximo passo (depende do hardware)
 
