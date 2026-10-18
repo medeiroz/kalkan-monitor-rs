@@ -18,7 +18,8 @@ permissions:
   contents: write
 
 jobs:
-  installer:
+  windows:
+    name: Windows
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,6 +55,7 @@ jobs:
           generate_release_notes: true
 
   linux:
+    name: Linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -87,6 +89,7 @@ jobs:
           generate_release_notes: true
 
   macos:
+    name: Mac
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
