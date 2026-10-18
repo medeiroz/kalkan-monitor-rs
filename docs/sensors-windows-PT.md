@@ -28,8 +28,39 @@ publicado self-contained — não exige .NET instalado) carrega o
 stdout, a cada 1 s:
 
 ```
-{"cpu_temp_c":42.0,"fan_rpm":2400}
+{"cpu_temp_c":42.0,"fan_rpm":2400,"sensors":[{"id":"/lpc/nct6799d/0/fan/1","hardware":"NCT6799D","hardware_type":"SuperIO","name":"Fan #2","kind":"fan","value":2400},{"id":"/gpu-nvidia/0/temperature/0","hardware":"NVIDIA GeForce RTX 4090","hardware_type":"GpuNvidia","name":"GPU Core","kind":"temp","value":61.5}]}
 ```
+
+`cpu_temp_c` / `fan_rpm` são as escolhas automáticas (mantidas para leitores
+antigos; qualquer um pode ser `null`). `sensors` lista **todos** os sensores de
+temperatura e ventoinha de todo o hardware (CPU, GPU, placa-mãe/Super-I/O,
+controladores de ventoinha, armazenamento, memória) que passam nos filtros de
+sanidade (temperatura 0–150 °C, ventoinha 0–100000 RPM, 0 RPM ignorado). Cada
+item tem um `id` estável (o `Identifier` do LibreHardwareMonitor), `hardware`,
+`hardware_type`, `name`, `kind` (`"temp"` ou `"fan"`) e `value`. As strings são
+só ASCII (o que não é ASCII vai escapado como `\uXXXX`). Linhas sem `sensors`
+continuam válidas (a lista fica vazia).
+
+### Escolhendo o que o display mostra
+
+O display recebe exatamente dois valores (um byte de temperatura e um `u16` de
+RPM), mas cada um pode vir de qualquer sensor. Na página **Display**, **Temperature
+source** oferece `Auto` (a temperatura automática da CPU acima), `Max CPU/GPU` (a
+maior entre a temperatura automática da CPU e o sensor de núcleo/hot spot mais
+quente da GPU) ou um sensor específico; **RPM source** oferece `Auto` ou um
+sensor específico de ventoinha/bomba. Os sensores aparecem como
+`<hardware> — <sensor>` e as listas atualizam conforme os sensores surgem. Se o
+sensor escolhido sumir, aquele campo volta para `Auto` em vez de enviar 0. A
+escolha fica salva em `%APPDATA%\KalkanMonitor\settings.json`
+(`~/.config/KalkanMonitor/settings.json` no Linux; arquivo ausente ou corrompido
+significa Auto/Auto):
+
+```
+{"temp_source":"max_cpu_gpu","fan_source":{"sensor":"/lpc/nct6799d/0/fan/1"}}
+```
+
+O fallback HWiNFO `config.dat` preenche a mesma lista (ids `hwinfo/<sensor>/<índice>/<tipo>`);
+o fallback de Shared Memory não enumera sensores, então só `Auto` vale ali.
 
 O `kalkan-core` spawna o sidecar (sem janela de console), lê essa saída numa
 thread e combina com o `sysinfo`. Fica **lado a lado** com o executável (ou

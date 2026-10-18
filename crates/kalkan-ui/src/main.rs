@@ -15,25 +15,62 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use kalkan_core::{
-    available_serial_ports, build_frame, default_source, open_display, scramble, Reading,
-    SerialTransport, Transport,
+    available_serial_ports, build_frame, default_source, fan_options, open_display, scramble,
+    select_fan, select_temp, temp_options, FanSource, Reading, SerialTransport, Settings,
+    SensorValue, SourceOption, TempSource, Transport,
 };
 use slint::{ModelRc, SharedString, Timer, VecModel};
 
 slint::include_modules!();
 
-/// Map of the sources chosen for each display field (index into the ComboBox).
-#[derive(Clone, Copy)]
+/// Map of the sources chosen for each display field. Temperature and fan hold
+/// the actual choice (a sensor id survives the sensor list changing); the
+/// usage field is still an index into its ComboBox.
+#[derive(Clone, Default)]
 struct Mapping {
-    temp: usize,
-    fan: usize,
+    temp: TempSource,
+    fan: FanSource,
     load: usize,
 }
 
-impl Default for Mapping {
+/// Options currently shown in the temperature and fan selectors.
+struct Options {
+    temp: Vec<SourceOption<TempSource>>,
+    fan: Vec<SourceOption<FanSource>>,
+    /// Nothing pushed to the selectors yet.
+    first: bool,
+}
+
+impl Default for Options {
     fn default() -> Self {
-        Self { temp: 0, fan: 0, load: 0 }
+        Self { temp: Vec::new(), fan: Vec::new(), first: true }
     }
+}
+
+fn labels<S>(opts: &[SourceOption<S>]) -> Vec<SharedString> {
+    opts.iter().map(|o| SharedString::from(o.label.as_str())).collect()
+}
+
+/// Pushes the current options into the selectors, keeping each selection.
+///
+/// A model is only replaced when its labels changed, so the popup is not
+/// rebuilt every second. The selected index follows the chosen source (a
+/// sensor id), not a position that shifts as sensors appear.
+fn refresh_options(ui: &AppWindow, m: &Mapping, opts: &mut Options, sensors: &[SensorValue]) {
+    let temp = temp_options(sensors, &m.temp);
+    let fan = fan_options(sensors, &m.fan);
+    let (tl, fl) = (labels(&temp), labels(&fan));
+    if opts.first || tl != labels(&opts.temp) {
+        ui.set_temp_sources(ModelRc::new(VecModel::from(tl)));
+    }
+    if opts.first || fl != labels(&opts.fan) {
+        ui.set_fan_sources(ModelRc::new(VecModel::from(fl)));
+    }
+    ui.set_temp_source_index(temp.iter().position(|o| o.source == m.temp).unwrap_or(0) as i32);
+    ui.set_fan_source_index(fan.iter().position(|o| o.source == m.fan).unwrap_or(0) as i32);
+    opts.temp = temp;
+    opts.fan = fan;
+    opts.first = false;
 }
 
 fn model(items: &[&str]) -> ModelRc<SharedString> {
@@ -43,15 +80,12 @@ fn model(items: &[&str]) -> ModelRc<SharedString> {
 
 // -- source selection per field (index → reading value) -----------------------
 
-fn temp_value(r: &Reading, idx: usize) -> Option<f32> {
-    match idx {
-        0 => r.cpu_temp_c, // CPU (die)
-        _ => None,         // GPU / water: no backend
-    }
+fn temp_value(r: &Reading, src: &TempSource) -> Option<f32> {
+    select_temp(src, r)
 }
 
-fn fan_value(r: &Reading, _idx: usize) -> Option<u32> {
-    r.fan_rpm // no fan source available yet (all of them land here)
+fn fan_value(r: &Reading, src: &FanSource) -> Option<u32> {
+    select_fan(src, r)
 }
 
 fn load_value(r: &Reading, idx: usize) -> Option<f32> {
@@ -68,7 +102,7 @@ fn level(value: f32, warn: f32, crit: f32) -> i32 {
     if value >= crit { 2 } else if value >= warn { 1 } else { 0 }
 }
 
-fn update_dashboard(ui: &AppWindow, r: &Reading) {
+fn update_dashboard(ui: &AppWindow, m: &Mapping, r: &Reading) {
     // CPU
     ui.set_cpu_load(r.cpu_load);
     ui.set_cpu_load_str(format!("{:.0}", r.cpu_load).into());
@@ -76,8 +110,8 @@ fn update_dashboard(ui: &AppWindow, r: &Reading) {
     ui.set_cpu_level(cl);
     ui.set_cpu_state(match cl { 2 => "Critical", 1 => "High", _ => "Normal" }.into());
 
-    // Temperature
-    match r.cpu_temp_c {
+    // Temperature (the source chosen for the display)
+    match temp_value(r, &m.temp) {
         Some(t) => {
             ui.set_cpu_temp_str(format!("{t:.0}").into());
             ui.set_temp_fraction((t / 100.0).clamp(0.0, 1.0));
@@ -93,8 +127,8 @@ fn update_dashboard(ui: &AppWindow, r: &Reading) {
         }
     }
 
-    // Fan
-    match r.fan_rpm {
+    // Fan (the source chosen for the display)
+    match fan_value(r, &m.fan) {
         Some(f) => {
             ui.set_fan_str(format!("{f}").into());
             ui.set_fan_fraction((f as f32 / 3000.0).clamp(0.0, 1.0));
@@ -108,9 +142,9 @@ fn update_dashboard(ui: &AppWindow, r: &Reading) {
     }
 }
 
-fn update_display(ui: &AppWindow, m: Mapping, r: &Reading, frame_index: i32, sending: bool) {
+fn update_display(ui: &AppWindow, m: &Mapping, r: &Reading, frame_index: i32, sending: bool) {
     // --- temperature field (byte 0..255) ---
-    match temp_value(r, m.temp) {
+    match temp_value(r, &m.temp) {
         Some(t) => {
             let out = t.round().clamp(0.0, 255.0) as i32;
             let sat = t > 255.0 || t < 0.0;
@@ -128,7 +162,7 @@ fn update_display(ui: &AppWindow, m: Mapping, r: &Reading, frame_index: i32, sen
     }
 
     // --- fan field (2 bytes, 0..65535) ---
-    match fan_value(r, m.fan) {
+    match fan_value(r, &m.fan) {
         Some(f) => {
             let out = f.min(0xFFFF) as i32;
             let sat = f > 0xFFFF;
@@ -165,9 +199,9 @@ fn update_display(ui: &AppWindow, m: Mapping, r: &Reading, frame_index: i32, sen
 }
 
 /// Builds the 1.3 frame with the same values as the preview (`update_display`).
-fn display_frame(m: Mapping, r: &Reading) -> Vec<u8> {
-    let temp = temp_value(r, m.temp).map(|t| t.round().clamp(0.0, 255.0) as u8).unwrap_or(0);
-    let fan = fan_value(r, m.fan).map(|f| f.min(0xFFFF) as u16).unwrap_or(0);
+fn display_frame(m: &Mapping, r: &Reading) -> Vec<u8> {
+    let temp = temp_value(r, &m.temp).map(|t| t.round().clamp(0.0, 255.0) as u8).unwrap_or(0);
+    let fan = fan_value(r, &m.fan).map(|f| f.min(0xFFFF) as u16).unwrap_or(0);
     scramble(&build_frame(temp, fan))
 }
 
@@ -290,6 +324,24 @@ fn ensure_elevated() {
 fn ensure_elevated() {}
 
 fn main() -> anyhow::Result<()> {
+    // winit needs this thread to be an STA (OleInitialize) when it creates the
+    // window, but sysinfo's WMI access (inside `default_source()`) would
+    // initialize COM as MTA first and make that fail. Claim STA up front; the
+    // later sysinfo attempt then fails gracefully (temps come from the sidecar
+    // or HWiNFO on Windows anyway).
+    #[cfg(windows)]
+    {
+        #[link(name = "ole32")]
+        extern "system" {
+            fn OleInitialize(reserved: *mut core::ffi::c_void) -> i32;
+        }
+        // SAFETY: plain FFI call with the required null argument; the result
+        // is ignored on purpose (S_FALSE just means already initialized).
+        unsafe {
+            OleInitialize(core::ptr::null_mut());
+        }
+    }
+
     ensure_elevated();
     let ui = AppWindow::new()?;
 
@@ -298,9 +350,8 @@ fn main() -> anyhow::Result<()> {
         ui.set_active_page(p.parse().unwrap_or(0));
     }
 
-    // Source models for each field (unavailable ones are marked).
-    ui.set_temp_sources(model(&["CPU (die)", "GPU · no backend", "Water/liquid · no backend"]));
-    ui.set_fan_sources(model(&["Pump · no backend", "CPU fan · no backend", "Case fan · no backend"]));
+    // The temperature and fan lists are filled from the sensors as they appear
+    // (see `refresh_options`); usage is a fixed list.
     ui.set_load_sources(model(&["CPU usage", "RAM usage", "GPU · no backend"]));
 
     // Best-effort discovery of the 1.3 display on the serial ports (VID/PID).
@@ -334,25 +385,51 @@ fn main() -> anyhow::Result<()> {
     }
 
     // State shared between the timer and the slot-change callback.
-    let mapping = Rc::new(RefCell::new(Mapping::default()));
+    // The saved choices (Auto/Auto when there is no usable settings file).
+    let saved = Settings::load();
+    let mapping = Rc::new(RefCell::new(Mapping {
+        temp: saved.temp_source,
+        fan: saved.fan_source,
+        load: 0,
+    }));
+    let options = Rc::new(RefCell::new(Options::default()));
+    refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &[]);
     let last = Rc::new(RefCell::new(Reading::default()));
     let frame = Rc::new(RefCell::new(0i32));
 
     // Callback: the user changed a field's source → recompute the preview right away.
     {
-        let (ui_w, map, lastr, framr) = (ui.as_weak(), mapping.clone(), last.clone(), frame.clone());
+        let (ui_w, map, lastr, framr, opts) =
+            (ui.as_weak(), mapping.clone(), last.clone(), frame.clone(), options.clone());
         ui.on_slot_changed(move |slot, index| {
+            let index = index.max(0) as usize;
             {
                 let mut m = map.borrow_mut();
+                let o = opts.borrow();
                 match slot {
-                    0 => m.temp = index as usize,
-                    1 => m.fan = index as usize,
-                    _ => m.load = index as usize,
+                    0 => {
+                        if let Some(x) = o.temp.get(index) {
+                            m.temp = x.source.clone();
+                        }
+                    }
+                    1 => {
+                        if let Some(x) = o.fan.get(index) {
+                            m.fan = x.source.clone();
+                        }
+                    }
+                    _ => m.load = index,
+                }
+                if slot < 2 {
+                    let s = Settings { temp_source: m.temp.clone(), fan_source: m.fan.clone() };
+                    if let Err(e) = s.save() {
+                        eprintln!("could not save settings: {e}");
+                    }
                 }
             }
             if let Some(ui) = ui_w.upgrade() {
                 let sending = ui.get_conn_state() == ConnState::Connected;
-                update_display(&ui, *map.borrow(), &lastr.borrow(), *framr.borrow(), sending);
+                update_display(&ui, &map.borrow(), &lastr.borrow(), *framr.borrow(), sending);
+                update_dashboard(&ui, &map.borrow(), &lastr.borrow());
             }
         });
     }
@@ -365,8 +442,14 @@ fn main() -> anyhow::Result<()> {
     // the PC → display cadence is always the same).
     let timer = Timer::default();
     {
-        let (ui_w, source, mapping, last, frame) =
-            (ui.as_weak(), source.clone(), mapping.clone(), last.clone(), frame.clone());
+        let (ui_w, source, mapping, last, frame, options) = (
+            ui.as_weak(),
+            source.clone(),
+            mapping.clone(),
+            last.clone(),
+            frame.clone(),
+            options.clone(),
+        );
         let mut port: Option<SerialTransport> = None;
         timer.start(
             slint::TimerMode::Repeated,
@@ -376,10 +459,11 @@ fn main() -> anyhow::Result<()> {
                 *last.borrow_mut() = reading.clone();
                 let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
                 if let Some(ui) = ui_w.upgrade() {
-                    send_frame(&ui, &mut port, &display_frame(*mapping.borrow(), &reading));
-                    update_dashboard(&ui, &reading);
+                    refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading.sensors);
+                    send_frame(&ui, &mut port, &display_frame(&mapping.borrow(), &reading));
+                    update_dashboard(&ui, &mapping.borrow(), &reading);
                     let sending = ui.get_conn_state() == ConnState::Connected;
-                    update_display(&ui, *mapping.borrow(), &reading, fi, sending);
+                    update_display(&ui, &mapping.borrow(), &reading, fi, sending);
                 }
             },
         );

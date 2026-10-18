@@ -107,6 +107,7 @@ dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
       HVCI), the **original app's HWiNFO engine** (`config.dat`, if installed) and
       **HWiNFO Shared Memory**. CPU/RAM load come from `sysinfo`. The UI
       self-elevates (UAC), like the original. See [`docs/sensors-windows.md`](docs/sensors-windows.md).
+- [x] **Source selection**: pick which sensor feeds the display's temperature and RPM fields (Auto, Max CPU/GPU or any temp/fan sensor); saved in `%APPDATA%\KalkanMonitor\settings.json`. See [`docs/sensors-windows.md`](docs/sensors-windows.md).
 - [x] **Installer** (Inno Setup, PawnIO bundled) and **CI/CD** on GitHub Actions.
 - [ ] Sensor backends for Linux (lm-sensors/hwmon) and macOS (SMC) — temp/fan
       show `--` on those platforms for now (CPU load is real).

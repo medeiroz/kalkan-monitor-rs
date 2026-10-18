@@ -28,8 +28,37 @@ published self-contained — no .NET install required) loads
 second on stdout:
 
 ```
-{"cpu_temp_c":42.0,"fan_rpm":2400}
+{"cpu_temp_c":42.0,"fan_rpm":2400,"sensors":[{"id":"/lpc/nct6799d/0/fan/1","hardware":"NCT6799D","hardware_type":"SuperIO","name":"Fan #2","kind":"fan","value":2400},{"id":"/gpu-nvidia/0/temperature/0","hardware":"NVIDIA GeForce RTX 4090","hardware_type":"GpuNvidia","name":"GPU Core","kind":"temp","value":61.5}]}
 ```
+
+`cpu_temp_c` / `fan_rpm` are the automatic picks (kept for older readers; either
+can be `null`). `sensors` lists **every** temperature and fan sensor on all
+hardware (CPU, GPU, motherboard/Super-I/O, fan controllers, storage, memory)
+that passes the sanity filters (temperature 0–150 °C, fan 0–100000 RPM, 0 RPM
+ignored). Each entry has a stable `id` (the LibreHardwareMonitor `Identifier`),
+`hardware`, `hardware_type`, `name`, `kind` (`"temp"` or `"fan"`) and `value`.
+Strings are ASCII-only (non-ASCII is `\uXXXX`-escaped). Lines without `sensors`
+still parse (the list is just empty).
+
+### Choosing what the display shows
+
+The display takes exactly two values (a temperature byte and an RPM `u16`), but
+each can come from any sensor. On the **Display** page, **Temperature source**
+offers `Auto` (the automatic CPU temperature above), `Max CPU/GPU` (the higher
+of the automatic CPU temperature and the hottest GPU core/hot-spot sensor) or a
+specific sensor; **RPM source** offers `Auto` or a specific fan/pump sensor.
+Sensors are labeled `<hardware> — <sensor>` and the lists refresh as sensors
+appear. If the chosen sensor is missing, that field falls back to `Auto` rather
+than sending 0. The choice is saved in `%APPDATA%\KalkanMonitor\settings.json`
+(`~/.config/KalkanMonitor/settings.json` on Linux; a missing or corrupt file
+means Auto/Auto):
+
+```
+{"temp_source":"max_cpu_gpu","fan_source":{"sensor":"/lpc/nct6799d/0/fan/1"}}
+```
+
+The HWiNFO `config.dat` fallback fills the same list (ids `hwinfo/<sensor>/<index>/<type>`);
+the Shared Memory fallback does not enumerate sensors, so only `Auto` applies there.
 
 `kalkan-core` spawns the sidecar (with no console window), reads that output on
 a thread and combines it with `sysinfo`. It sits **side by side** with the

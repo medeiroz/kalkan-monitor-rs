@@ -277,33 +277,37 @@ component Select inherits Rectangle {
         x: 0;
         y: parent.height + 4px;
         width: root.width;
+        height: min(root.model.length * 38px + 12px, 280px);
         Rectangle {
             background: Palette.surface;
             border-radius: 10px;
             border-width: 1px;
             border-color: Palette.line-strong;
-            VerticalLayout {
-                padding: 6px;
-                spacing: 2px;
-                for item[idx] in root.model : Rectangle {
-                    height: 36px;
-                    border-radius: 8px;
-                    background: opt.has-hover ? Palette.accent-weak
-                              : idx == root.current-index ? Palette.surface-2 : transparent;
-                    HorizontalLayout {
-                        padding-left: 10px;
-                        Text {
-                            text: item;
-                            color: idx == root.current-index ? Palette.accent : Palette.ink;
-                            font-size: 14px;
-                            font-weight: idx == root.current-index ? 700 : 500;
-                            vertical-alignment: center;
+            Flickable {
+                VerticalLayout {
+                    padding: 6px;
+                    spacing: 2px;
+                    for item[idx] in root.model : Rectangle {
+                        height: 36px;
+                        border-radius: 8px;
+                        background: opt.has-hover ? Palette.accent-weak
+                                  : idx == root.current-index ? Palette.surface-2 : transparent;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            Text {
+                                text: item;
+                                color: idx == root.current-index ? Palette.accent : Palette.ink;
+                                font-size: 14px;
+                                font-weight: idx == root.current-index ? 700 : 500;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
                         }
-                    }
-                    opt := TouchArea {
-                        clicked => {
-                            root.current-index = idx;
-                            root.changed(idx);
+                        opt := TouchArea {
+                            clicked => {
+                                root.current-index = idx;
+                                root.changed(idx);
+                            }
                         }
                     }
                 }
@@ -558,7 +562,7 @@ export component AppWindow inherits Window {
                                 color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
                             }
                             SlotEditor {
-                                label: "TEMPERATURE FIELD";
+                                label: "TEMPERATURE SOURCE";
                                 sources: root.temp-sources;
                                 current-index <=> root.temp-source-index;
                                 sends: root.temp-sends; warn: root.temp-sends-warn;
@@ -566,7 +570,7 @@ export component AppWindow inherits Window {
                             }
                             Rectangle { height: 1px; background: Palette.line; }
                             SlotEditor {
-                                label: "FAN / PUMP FIELD";
+                                label: "RPM SOURCE";
                                 sources: root.fan-sources;
                                 current-index <=> root.fan-source-index;
                                 sends: root.fan-sends; warn: root.fan-sends-warn;

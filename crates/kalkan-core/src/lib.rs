@@ -9,7 +9,9 @@
 
 pub mod device;
 pub mod protocol;
+pub mod selection;
 pub mod sensors;
+pub mod settings;
 pub mod transport;
 
 pub use device::{
@@ -17,7 +19,11 @@ pub use device::{
     HidDeviceInfo, SerialDeviceInfo, DISPLAY_IDS,
 };
 pub use protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
-pub use sensors::{default_source, Reading, SensorSource, SysinfoSource};
+pub use selection::{
+    fan_options, select_fan, select_temp, temp_options, FanSource, SourceOption, TempSource,
+};
+pub use sensors::{default_source, Reading, SensorKind, SensorSource, SensorValue, SysinfoSource};
+pub use settings::Settings;
 pub use transport::{HidTransport, SerialTransport, Transport};
 
 use anyhow::{anyhow, Result};
