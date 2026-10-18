@@ -1,12 +1,18 @@
 name: Release
 
-# Tag `v*` (e.g. v0.1.0): builds the installer and publishes a GitHub Release.
-# A manual run (workflow_dispatch) only produces the installer as an artifact.
-# The tag trigger is disabled for now; manual runs only.
+# Builds the Windows installer, the Linux .deb and the macOS .dmg.
+# - Push to main and manual runs (workflow_dispatch): upload them as artifacts only.
+# - Tag `v*` (e.g. v0.1.0): also publishes a GitHub Release.
 on:
-  # push:
-  #   tags: ['v*']
+  push:
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+
+# A newer push to the same ref cancels an in-progress build; tag builds are never cancelled.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 permissions:
   contents: write
@@ -45,4 +51,65 @@ jobs:
         if: github.ref_type == 'tag'
         with:
           files: target/installer/KalkanMonitor-Setup-*.exe
+          generate_release_notes: true
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Linux dependencies (serial + Slint)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libfontconfig1-dev libxkbcommon-dev
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      # Packaging is configured in [package.metadata.deb] of crates/kalkan-ui/Cargo.toml.
+      - name: Build the .deb
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.$GITHUB_RUN_NUMBER"; fi
+          cargo deb -p kalkan-ui --deb-version "$v"
+
+      # archive: false uploads the .deb as-is (downloads as the .deb, not a zip).
+      - uses: actions/upload-artifact@v7
+        with:
+          path: target/debian/kalkan-monitor_*.deb
+          archive: false
+
+      - uses: softprops/action-gh-release@v3
+        if: github.ref_type == 'tag'
+        with:
+          files: target/debian/kalkan-monitor_*.deb
+          generate_release_notes: true
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      # Universal binary (Apple Silicon + Intel), Kalkan Monitor.app with its
+      # Info.plist and .icns, ad-hoc signature and the .dmg: see macos/build.sh.
+      - name: Build the .app and the .dmg
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.$GITHUB_RUN_NUMBER"; fi
+          bash macos/build.sh "$v"
+
+      # archive: false uploads the .dmg as-is (downloads as the .dmg, not a zip).
+      - uses: actions/upload-artifact@v7
+        with:
+          path: target/macos/KalkanMonitor-*.dmg
+          archive: false
+
+      - uses: softprops/action-gh-release@v3
+        if: github.ref_type == 'tag'
+        with:
+          files: target/macos/KalkanMonitor-*.dmg
           generate_release_notes: true

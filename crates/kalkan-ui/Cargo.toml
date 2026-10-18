@@ -3,6 +3,8 @@ name = "kalkan-ui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+description = "Dashboard and driver for the Kalkan PC SmartMonitor 1.3 cooler display"
 
 [[bin]]
 name = "kalkan-monitor"
@@ -17,7 +19,35 @@ dirs.workspace = true
 [build-dependencies]
 slint-build = "1.8.0"
 
-# System tray (Windows/macOS). On Linux it would need GTK/appindicator system
-# libraries, so the window close button quits there instead.
+# System tray. Windows/macOS use the native one. Linux publishes a
+# StatusNotifierItem over D-Bus (`ksni` backend), which needs no GTK or
+# appindicator system libraries; `zbus` is used to detect whether the desktop
+# has a StatusNotifier host at all (stock GNOME does not).
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 tray-icon = { version = "0.26.1", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tray-icon = { version = "0.26.1", default-features = false, features = ["ksni"] }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+
+# Debian package: `cargo deb -p kalkan-ui` (see .github/workflows/release.yml).
+[package.metadata.deb]
+name = "kalkan-monitor"
+maintainer = "Kalkan Monitor RS contributors <noreply@users.noreply.github.com>"
+copyright = "2026, Kalkan Monitor RS contributors"
+section = "utils"
+priority = "optional"
+depends = "$auto"
+recommends = "libgl1"
+extended-description = """\
+Shows CPU, temperature and fan/pump readings on the Kalkan PC SmartMonitor 1.3 \
+cooler display over its USB serial port. Sensors come from the kernel hwmon \
+interface. A udev rule grants the logged-in user access to the display."""
+maintainer-scripts = "../../linux/debian"
+assets = [
+    ["target/release/kalkan-monitor", "usr/bin/", "755"],
+    ["../../linux/kalkan-monitor.desktop", "usr/share/applications/", "644"],
+    ["../../linux/icons/kalkan-monitor.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["../../linux/icons/kalkan-monitor.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../linux/udev/60-kalkan-monitor.rules", "usr/lib/udev/rules.d/", "644"],
+]

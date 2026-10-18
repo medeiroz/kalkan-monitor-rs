@@ -123,13 +123,52 @@ mod imp {
     }
 }
 
+/// The LaunchAgent plist (macOS). Platform independent, so it is tested everywhere.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod launch_agent {
+    pub const LABEL: &str = "io.github.medeiroz.kalkan-monitor";
+
+    fn xml_escape(s: &str) -> String {
+        s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    }
+
+    /// The plist that starts `exe` (the executable inside the installed
+    /// `Kalkan Monitor.app`) with `--tray` at login, in the GUI session.
+    pub fn plist(exe: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{LABEL}</string>
+  <key>ProgramArguments</key>
+  <array><string>{exe}</string><string>{tray}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>ProcessType</key><string>Interactive</string>
+</dict>
+</plist>
+"#,
+            exe = xml_escape(exe),
+            tray = super::TRAY_ARG,
+        )
+    }
+
+    /// Whether `exe` is somewhere a LaunchAgent cannot rely on: a mounted disk
+    /// image (the app was run from the .dmg) or Gatekeeper's randomized
+    /// "App Translocation" copy. Both vanish, and the agent would point nowhere.
+    pub fn is_unstable_location(exe: &str) -> bool {
+        exe.starts_with("/Volumes/") || exe.contains("/AppTranslocation/")
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::path::PathBuf;
 
-    use anyhow::{Context, Result};
+    use anyhow::{bail, Context, Result};
 
-    const LABEL: &str = "io.github.medeiroz.kalkan-monitor";
+    use super::launch_agent::{is_unstable_location, plist, LABEL};
 
     fn plist_path() -> Option<PathBuf> {
         dirs::home_dir().map(|h| h.join("Library/LaunchAgents").join(format!("{LABEL}.plist")))
@@ -141,24 +180,13 @@ mod imp {
 
     pub fn enable() -> Result<()> {
         let path = plist_path().context("no home directory")?;
-        let exe = std::env::current_exe()?;
-        let exe = exe.to_string_lossy().replace('&', "&amp;").replace('<', "&lt;");
-        let plist = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{LABEL}</string>
-  <key>ProgramArguments</key>
-  <array><string>{exe}</string><string>{tray}</string></array>
-  <key>RunAtLoad</key><true/>
-</dict>
-</plist>
-"#,
-            tray = super::TRAY_ARG,
-        );
+        // Inside the .app bundle this is `Kalkan Monitor.app/Contents/MacOS/kalkan-monitor`.
+        let exe = std::env::current_exe()?.to_string_lossy().into_owned();
+        if is_unstable_location(&exe) {
+            bail!("Move Kalkan Monitor to the Applications folder and open it from there first");
+        }
         std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(&path, plist)?;
+        std::fs::write(&path, plist(&exe))?;
         Ok(())
     }
 
@@ -216,5 +244,29 @@ pub fn set_enabled(on: bool) -> Result<()> {
         imp::enable()
     } else {
         imp::disable()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_agent::*;
+
+    #[test]
+    fn plist_runs_the_bundle_executable_in_the_tray() {
+        let p = plist("/Applications/Kalkan Monitor.app/Contents/MacOS/kalkan-monitor");
+        assert!(p.contains(
+            "<string>/Applications/Kalkan Monitor.app/Contents/MacOS/kalkan-monitor</string><string>--tray</string>"
+        ));
+        assert!(p.contains(&format!("<string>{LABEL}</string>")));
+        assert!(p.contains("<key>RunAtLoad</key><true/>"));
+        assert!(plist("/a&b/<x>").contains("/a&amp;b/&lt;x&gt;"));
+    }
+
+    #[test]
+    fn disk_images_and_translocated_copies_are_not_stable() {
+        assert!(is_unstable_location("/Volumes/Kalkan Monitor/Kalkan Monitor.app/Contents/MacOS/kalkan-monitor"));
+        assert!(is_unstable_location("/private/var/folders/x/AppTranslocation/ABC/d/Kalkan Monitor.app/Contents/MacOS/kalkan-monitor"));
+        assert!(!is_unstable_location("/Applications/Kalkan Monitor.app/Contents/MacOS/kalkan-monitor"));
+        assert!(!is_unstable_location("/Users/me/Applications/Kalkan Monitor.app/Contents/MacOS/kalkan-monitor"));
     }
 }

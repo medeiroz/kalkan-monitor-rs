@@ -44,6 +44,8 @@ sidecar/
   kalkan-sensord/ # Windows sensors via LibreHardwareMonitor (.NET)
 windows/
   installer/    # Windows installer (Inno Setup) + build.ps1
+linux/          # .deb packaging files: udev rule, .desktop, icons, maintainer scripts
+macos/          # .app/.dmg packaging: Info.plist template + build.sh
 docs/
   protocol.md    # reverse-engineering findings (reconstructed 1.3 protocol)
 ```
@@ -69,9 +71,12 @@ To build the installer locally: `./windows/installer/build.ps1 -Version 0.1.0`
   - Windows: a Task Scheduler task (`Kalkan Monitor`, at logon, highest
     privileges), so it starts elevated without a UAC prompt. The uninstaller
     removes it.
-  - macOS: a LaunchAgent in `~/Library/LaunchAgents`.
-  - Linux: an entry in `~/.config/autostart` (no tray on Linux yet: closing the
-    window quits there).
+  - macOS: a LaunchAgent in `~/Library/LaunchAgents` that runs the executable
+    inside the installed `Kalkan Monitor.app`, so enable it from the copy in
+    Applications (see [Install (macOS)](#install-macos)).
+  - Linux: an entry in `~/.config/autostart`. The tray needs a StatusNotifier
+    host (see [Install (Linux)](#install-linux)); without one, closing the
+    window quits and the window opens at login instead of staying hidden.
 
 ### Publishing a release
 
@@ -79,9 +84,100 @@ To build the installer locally: `./windows/installer/build.ps1 -Version 0.1.0`
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-GitHub Actions (`.github/workflows/release.yml`) builds the installer and
-creates the Release with it attached. Every push/PR runs the tests on Windows,
+GitHub Actions (`.github/workflows/release.yml`) builds the Windows installer,
+the Linux `.deb` and the macOS `.dmg` and creates the Release with them attached. Every push/PR runs the tests on Windows,
 Linux and macOS (`ci.yml`).
+
+## Install (Linux)
+
+Download `kalkan-monitor_<version>_amd64.deb` from
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases) and install it:
+
+```bash
+sudo apt install ./kalkan-monitor_<version>_amd64.deb
+```
+
+The package installs the `kalkan-monitor` app, a desktop entry, an icon and the
+**udev rule** that lets you open the display's serial port. Other distros: build
+from source (below) and copy [`linux/udev/60-kalkan-monitor.rules`](linux/udev/60-kalkan-monitor.rules)
+to `/etc/udev/rules.d/`.
+
+**Serial port access.** The display shows up as `/dev/ttyUSB*` or `/dev/ttyACM*`,
+which normal users cannot open by default. The udev rule grants access to the
+user logged in at the machine (`TAG+="uaccess"`), with a `dialout` group
+fallback. After installing it, **replug the display** (the package also reloads
+the rules). Without the rule, add yourself to the group and log in again:
+
+```bash
+sudo usermod -aG dialout $USER   # "uucp" on Arch
+```
+
+If the port cannot be opened, the app says so in the error banner and repeats
+this fix.
+
+**Sensors** come from the kernel's hwmon interface (`/sys/class/hwmon`): CPU,
+GPU, motherboard fans, NVMe drives, memory and liquid coolers, grouped by
+category in the source selectors, with Auto picks for the CPU temperature and
+the fan/pump. No driver or root is needed, but the matching kernel module must
+be loaded (`k10temp`/`coretemp`, `nct6775`/`it87` for the motherboard, ...);
+`sensors-detect` from lm-sensors helps find it. NVIDIA's proprietary driver has
+no hwmon: GPU temperature comes from `nvidia-smi` when it is installed. See
+[`docs/sensors-linux.md`](docs/sensors-linux.md).
+
+**Tray.** The icon is a StatusNotifierItem (no GTK or appindicator libraries
+needed). It works out of the box on KDE Plasma, XFCE, Cinnamon, MATE and similar.
+**GNOME** needs the *AppIndicator and KStatusNotifierItem Support* extension
+(Ubuntu ships it enabled). Without a StatusNotifier host the app shows no tray
+icon: closing the window quits, and starting with `--tray` (autostart) opens the
+window instead of running invisibly.
+
+Opening the app while it is already running just shows its window (a socket in
+`$XDG_RUNTIME_DIR` keeps a single instance).
+
+## Install (macOS)
+
+Download `KalkanMonitor-<version>.dmg` from
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases), open it
+and drag **Kalkan Monitor** to **Applications**. It is a universal app (Apple
+Silicon and Intel) for macOS 11 or later. Run it from Applications, not from the
+disk image, so that "start with the operating system" can find it.
+
+**First launch (Gatekeeper).** The app is signed ad hoc and not notarized (that
+needs a paid Apple developer account), so macOS says it is from an
+"unidentified developer" or cannot be opened. Approve it once:
+
+- right-click (or Control-click) **Kalkan Monitor** in Applications → **Open** →
+  **Open**; or
+- on macOS 15 Sequoia and later, where that shortcut is gone: try to open the
+  app, then go to **System Settings → Privacy & Security**, scroll down and
+  click **Open Anyway** next to the Kalkan Monitor message; or
+- in a terminal: `xattr -dr com.apple.quarantine "/Applications/Kalkan Monitor.app"`.
+
+**Menu bar.** The app puts a thermometer icon in the menu bar (a monochrome
+template image, light or dark as the menu bar needs). Click it for **Open Kalkan
+Monitor** and **Close monitor**. Closing the window (red button or ⌘W) only
+hides it: the app keeps sending to the display from the menu bar, and clicking
+its Dock icon brings the window back (best effort: if your macOS version ignores
+that hook, use the menu-bar icon). **Close monitor** or ⌘Q quits for real. Opening
+the app again while it runs just shows its window (a socket in `$TMPDIR` keeps
+a single instance). **Settings → Start with the operating system** adds a
+LaunchAgent that starts it hidden in the menu bar at login (`--tray`).
+
+**Sensors.** No root and no driver. On Apple Silicon the temperatures come from
+the IOKit HID sensors (CPU die, GPU, SSD, battery), with the CPU die average as
+Auto; on Intel Macs from the SMC (`TC0P`, `TG0D`, ...). Fan speeds come from the
+SMC; a fanless Mac (MacBook Air) has none, so the RPM field shows `--`. See
+[`docs/sensors-macos.md`](docs/sensors-macos.md).
+
+**Serial driver (CH34x).** The display's USB-serial chip is from WCH's CH34x
+family. Recent macOS versions include a driver for the common ones, and the
+display then shows up as `/dev/cu.usbserial-*` (or `/dev/cu.wchusbserial*`).
+Older versions, and some chip variants, need WCH's CH34xVCPDriver
+([wch-ic.com](https://www.wch-ic.com/)); after
+installing it, allow it in **System Settings → Privacy & Security** and replug
+the display. If the display is plugged in but the app cannot find a port, the
+error banner says whether the display is not detected at all (cable) or detected
+without a port (driver).
 
 ## Build and run
 
@@ -106,6 +202,20 @@ dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
 # in dev, the app also finds the sidecar in sidecar/kalkan-sensord/bin/.../publish/
 ```
 
+Linux build (needs `libudev-dev`, `libfontconfig1-dev` and `libxkbcommon-dev`
+on Debian/Ubuntu) and the package (`cargo install cargo-deb`):
+
+```bash
+cargo build --release -p kalkan-ui
+cargo deb -p kalkan-ui              # -> target/debian/kalkan-monitor_*.deb
+```
+
+macOS build (needs the Xcode command line tools) and the app/disk image:
+
+```bash
+./macos/build.sh 0.1.0              # -> target/macos/KalkanMonitor-0.1.0.dmg (universal)
+```
+
 ## Status
 
 - [x] Core builds and runs on Windows, macOS and Linux (same crates).
@@ -123,8 +233,18 @@ dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
       self-elevates (UAC), like the original. See [`docs/sensors-windows.md`](docs/sensors-windows.md).
 - [x] **Source selection**: pick which sensor feeds the display's temperature and RPM fields (Auto, Max CPU/GPU or any temp/fan sensor); saved in `%APPDATA%\KalkanMonitor\settings.json`. See [`docs/sensors-windows.md`](docs/sensors-windows.md).
 - [x] **Installer** (Inno Setup, PawnIO bundled) and **CI/CD** on GitHub Actions.
-- [ ] Sensor backends for Linux (lm-sensors/hwmon) and macOS (SMC) — temp/fan
-      show `--` on those platforms for now (CPU load is real).
+- [x] **Linux**: sensors from hwmon (+ `nvidia-smi`), tray over StatusNotifier
+      with a fallback when there is no host, single instance, udev rule and a
+      `.deb`. See [`docs/sensors-linux.md`](docs/sensors-linux.md). Written without
+      a Linux machine at hand: tested through unit tests on a fake hwmon tree, so
+      reports from real hardware are welcome.
+- [x] **macOS**: sensors from IOKit (HID temperature sensors on Apple Silicon,
+      SMC on Intel, SMC fans), menu-bar icon, single instance, serial driver
+      hints, and a universal `.app` in a `.dmg`. See
+      [`docs/sensors-macos.md`](docs/sensors-macos.md). Written without a Mac at
+      hand: the pure logic is unit-tested and the macOS code is type-checked
+      for both architectures, but only a run on real hardware (or the macOS
+      CI job) proves it, so reports are welcome.
 - [x] **End-to-end sending validated on 1.3 hardware**: cooler at `1A86:484A`
       (COM3), `kalkan send 42 1234` showed 42 °C / 1234 RPM on the display. The
       display sends nothing back over serial. Cadence always 1 s.

@@ -80,6 +80,17 @@ fn sensors() -> Result<()> {
         "Fan      : {}",
         r.fan_rpm.map(|f| format!("{f} RPM")).unwrap_or_else(|| "n/a".into())
     );
+    // Every sensor the backend enumerates (ids are what settings.json stores).
+    if !r.sensors.is_empty() {
+        println!("\n{} sensor(s):", r.sensors.len());
+        for s in &r.sensors {
+            let (value, unit) = match s.kind {
+                kalkan_core::SensorKind::Temp => (format!("{:.1}", s.value), "°C"),
+                kalkan_core::SensorKind::Fan => (format!("{:.0}", s.value), "RPM"),
+            };
+            println!("  {:<42} {:>8} {unit:<3}  {}", s.id, value, s.label());
+        }
+    }
     Ok(())
 }
 

@@ -8,6 +8,8 @@
 //! opened at 1 Mbps, 8N1, no flow control. There is no handshake.
 
 pub mod device;
+pub mod hwmon;
+pub mod macos;
 pub mod naming;
 pub mod protocol;
 pub mod selection;
@@ -19,6 +21,8 @@ pub use device::{
     available_serial_ports, enumerate, find_display_port, is_display_port, looks_like_display,
     HidDeviceInfo, SerialDeviceInfo, DISPLAY_IDS,
 };
+pub use hwmon::LinuxSource;
+pub use macos::MacSource;
 pub use protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
 pub use selection::{
     fan_options, same_layout, select_fan, select_temp, temp_options, FanSource, SourceOption,
@@ -42,12 +46,13 @@ pub const BAUD: u32 = 1_000_000;
 pub fn open_display() -> Result<SerialTransport> {
     let port = find_display_port()?.ok_or_else(|| {
         anyhow!(
-            "no Kalkan 1.3 display found (looking for VID:PID {})",
+            "no Kalkan 1.3 display found (looking for VID:PID {}){}",
             DISPLAY_IDS
                 .iter()
                 .map(|(v, p)| format!("{v:04x}:{p:04x}"))
                 .collect::<Vec<_>>()
-                .join(" or ")
+                .join(" or "),
+            device::not_found_hint(),
         )
     })?;
     SerialTransport::open_display(&port)

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Kalkan Monitor
+GenericName=Cooler display monitor
+Comment=Drive the Kalkan PC SmartMonitor 1.3 cooler display
+Exec=kalkan-monitor
+Icon=kalkan-monitor
+Terminal=false
+Categories=Utility;System;Monitor;
+Keywords=kalkan;cooler;watercooler;temperature;fan;
+StartupWMClass=kalkan-monitor

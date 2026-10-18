@@ -1,0 +1,13 @@
+#!/bin/sh
+# Applies the udev rule (display access) without a reboot.
+set -e
+
+if [ "$1" = "configure" ] && command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules || true
+    # Re-evaluate serial ports that are already plugged in.
+    udevadm trigger --subsystem-match=tty --action=add || true
+fi
+
+#DEBHELPER#
+
+exit 0

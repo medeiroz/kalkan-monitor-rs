@@ -719,14 +719,16 @@ export component AppWindow inherits Window {
                         }
                     }
                     if root.hid-error != "" : Rectangle {
-                        height: 52px;
+                        min-height: 52px;
                         background: Palette.danger-weak;
                         border-radius: 12px;
                         border-width: 1px;
                         border-color: Palette.danger.with-alpha(0.3);
-                        HorizontalLayout {
+                        VerticalLayout {
+                            padding: 14px;
                             padding-left: 16px;
-                            Text { text: root.hid-error; color: Palette.danger; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+                            // Long messages (e.g. the Linux permission fix) wrap.
+                            Text { text: root.hid-error; color: Palette.danger; font-size: 13px; font-weight: 600; vertical-alignment: center; wrap: word-wrap; }
                         }
                     }
                     Rectangle {

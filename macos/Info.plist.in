@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleExecutable</key><string>kalkan-monitor</string>
+  <key>CFBundleIconFile</key><string>kalkan-monitor</string>
+  <key>CFBundleIdentifier</key><string>io.github.medeiroz.kalkan-monitor</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>Kalkan Monitor</string>
+  <key>CFBundleDisplayName</key><string>Kalkan Monitor</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <!-- A normal app with a Dock icon; the menu-bar icon is created by the app itself. -->
+  <key>LSUIElement</key><false/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSHumanReadableCopyright</key><string>Copyright 2026 Kalkan Monitor RS contributors. MIT license.</string>
+</dict>
+</plist>

@@ -3,7 +3,7 @@
 //! The original reads CPU/temperature/fan from **HWiNFO** (via `HWiNFO64.dll`),
 //! which only exists on Windows. To be cross-platform we replace that source
 //! with `sysinfo` (CPU load and, where available, temperatures/fans) and leave
-//! the trait open for OS-specific sources (lm-sensors on Linux, IOKit/SMC on
+//! the trait open for OS-specific sources (hwmon on Linux, IOKit/SMC on
 //! macOS, LibreHardwareMonitor on Windows) added later.
 
 use anyhow::Result;
@@ -67,7 +67,7 @@ pub trait SensorSource: Send {
 /// exposes thermal components (on Apple Silicon macOS these are the
 /// `PMU tdie*` sensors; on Linux, `coretemp`/`k10temp`; etc.). Fan speed does
 /// **not** come from `sysinfo` — it needs a specific backend (SMC on macOS,
-/// lm-sensors on Linux), so it is `None` here.
+/// hwmon on Linux), so it is `None` here.
 pub struct SysinfoSource {
     sys: sysinfo::System,
     components: sysinfo::Components,
@@ -160,13 +160,23 @@ impl SensorSource for SysinfoSource {
 /// Default source for the platform.
 ///
 /// On Windows it uses [`WindowsSource`] (CPU/RAM from `sysinfo` + temperature and
-/// fan from HWiNFO); on other platforms, [`SysinfoSource`].
+/// fan from HWiNFO); on Linux, `LinuxSource` (CPU/RAM from `sysinfo` + hwmon);
+/// on macOS, `MacSource` (CPU/RAM from `sysinfo` + IOKit HID sensors and the
+/// SMC); on other platforms, [`SysinfoSource`].
 pub fn default_source() -> Box<dyn SensorSource> {
     #[cfg(windows)]
     {
         Box::new(WindowsSource::new())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        Box::new(crate::hwmon::LinuxSource::new())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Box::new(crate::macos::MacSource::new())
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Box::new(SysinfoSource::new())
     }

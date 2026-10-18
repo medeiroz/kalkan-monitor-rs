@@ -22,9 +22,11 @@ use kalkan_core::{
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
 
 mod autostart;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 mod instance;
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 mod tray;
 
 slint::include_modules!();
@@ -407,7 +409,7 @@ fn main() -> anyhow::Result<()> {
 
     // Already running (e.g. hidden in the tray)? Bring it up instead. Checked
     // before elevating, so reopening never shows a UAC prompt.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     if instance::signal_existing() {
         return Ok(());
     }
@@ -424,10 +426,13 @@ fn main() -> anyhow::Result<()> {
             let _ = ui_w.upgrade_in_event_loop(|ui| {
                 let _ = ui.show();
                 ui.window().set_minimized(false);
+                // A background app keeps its window behind the others otherwise.
+                #[cfg(target_os = "macos")]
+                macos::activate();
             });
         }
     };
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     instance::listen(show.clone());
 
     // "Start with the operating system" (reflects the real OS registration).
@@ -568,14 +573,25 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Whether a tray icon can be shown at all: always on Windows/macOS; on
+    // Linux only when the desktop has a StatusNotifier host (stock GNOME does
+    // not). When started at logon, wait a few seconds for the panel to come up.
+    #[cfg(target_os = "linux")]
+    let tray_available = tray::host_available(start_hidden);
+    #[cfg(any(windows, target_os = "macos"))]
+    let tray_available = true;
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    let tray_available = false;
+
     // Tray icon: created once the event loop runs (required on macOS). The
     // close button then hides the window instead of quitting; "Close monitor"
-    // in the tray menu quits. Without a tray (Linux, or if creating it fails)
-    // closing the window quits as usual.
-    #[cfg(any(windows, target_os = "macos"))]
+    // in the tray menu quits. Without a tray (no StatusNotifier host on Linux,
+    // or if creating it fails) closing the window quits as usual and the
+    // window is shown even with `--tray`.
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     let tray_icon: Rc<RefCell<Option<tray_icon::TrayIcon>>> = Rc::new(RefCell::new(None));
-    #[cfg(any(windows, target_os = "macos"))]
-    {
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    if tray_available {
         let (holder, ui_w, show) = (tray_icon.clone(), ui.as_weak(), show.clone());
         Timer::single_shot(Duration::ZERO, move || match tray::create(show) {
             Ok(t) => *holder.borrow_mut() = Some(t),
@@ -587,13 +603,24 @@ fn main() -> anyhow::Result<()> {
             }
         });
     }
+    // macOS: a click on the Dock icon shows the hidden window again. Needs the
+    // application delegate, which exists once the event loop runs.
+    #[cfg(target_os = "macos")]
     {
-        #[cfg(any(windows, target_os = "macos"))]
+        let show = show.clone();
+        Timer::single_shot(Duration::ZERO, move || {
+            if !macos::install_reopen_handler(show) {
+                eprintln!("Dock icon reopen hook unavailable; use the menu-bar icon");
+            }
+        });
+    }
+    {
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         let has_tray = {
             let t = tray_icon.clone();
             move || t.borrow().is_some()
         };
-        #[cfg(not(any(windows, target_os = "macos")))]
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         let has_tray = || false;
         ui.window().on_close_requested(move || {
             if !has_tray() {
@@ -604,10 +631,12 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Started at logon: stay in the tray (only where there is one).
-    if !(start_hidden && cfg!(any(windows, target_os = "macos"))) {
+    if !(start_hidden && tray_available) {
         ui.show()?;
     }
     slint::run_event_loop_until_quit()?;
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    instance::release();
     let _ = show; // only used by the tray/instance hooks on some platforms
     Ok(())
 }

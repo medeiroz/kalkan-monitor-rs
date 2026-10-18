@@ -18,7 +18,7 @@ Source order (`WindowsSource`): **LibreHardwareMonitor sidecar + PawnIO** →
 temp/fan show as `--`). CPU/RAM load always come from `sysinfo`.
 
 macOS and Linux **do not use** any of this: they have native sources with no
-driver for us to distribute (hwmon on Linux, SMC on macOS).
+driver for us to distribute (hwmon on Linux, see [`sensors-linux.md`](sensors-linux.md); IOKit/SMC on macOS, see [`sensors-macos.md`](sensors-macos.md)).
 
 ## Source 1 — LibreHardwareMonitor sidecar + PawnIO (default)
 
