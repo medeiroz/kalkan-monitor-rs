@@ -19,6 +19,11 @@ pub struct Reading {
     pub cpu_temp_c: Option<f32>,
     /// Fan/pump speed in RPM, when available.
     pub fan_rpm: Option<u32>,
+    /// Id (`SensorValue::id`) of the sensor `cpu_temp_c` comes from, when the
+    /// backend knows it. What "Auto" resolves to is this id, never a value match.
+    pub cpu_temp_id: Option<String>,
+    /// Id of the sensor `fan_rpm` comes from, when the backend knows it.
+    pub fan_id: Option<String>,
     /// Every temperature and fan sensor the backend sees (for the source
     /// selection). Empty where the backend cannot enumerate them.
     pub sensors: Vec<SensorValue>,
@@ -152,6 +157,8 @@ impl SensorSource for SysinfoSource {
             cpu_temp_c,
             // Fan: sysinfo does not expose RPM; on Windows it comes from HWiNFO (see below).
             fan_rpm: None,
+            cpu_temp_id: None,
+            fan_id: None,
             sensors: Vec::new(),
         })
     }
@@ -396,6 +403,11 @@ pub struct HwinfoReading {
     pub value: f64,
 }
 
+/// Stable id of an HWiNFO engine reading in the common sensor list.
+pub(crate) fn hwinfo_id(r: &HwinfoReading) -> String {
+    format!("hwinfo/{}/{}/{}", r.sensor, r.index, r.kind)
+}
+
 /// Converts HWiNFO engine readings into the common sensor list.
 ///
 /// Applies the same sanity filters as the other sources. The hardware type is
@@ -421,7 +433,7 @@ pub(crate) fn sensors_from_hwinfo(readings: &[HwinfoReading]) -> Vec<SensorValue
                 "Other"
             };
             Some(SensorValue {
-                id: format!("hwinfo/{}/{}/{}", r.sensor, r.index, r.kind),
+                id: hwinfo_id(r),
                 hardware: r.sensor_name.clone(),
                 hardware_type: hardware_type.into(),
                 name: r.label.clone(),
@@ -435,7 +447,7 @@ pub(crate) fn sensors_from_hwinfo(readings: &[HwinfoReading]) -> Vec<SensorValue
 #[cfg(windows)]
 pub mod hwinfo_dll {
     use super::{
-        sensors_from_hwinfo, HwinfoReading, HwinfoSnapshot, SensorKind, SensorValue,
+        hwinfo_id, sensors_from_hwinfo, HwinfoReading, HwinfoSnapshot, SensorKind, SensorValue,
         READING_TYPE_FAN, READING_TYPE_TEMP,
     };
     use anyhow::{anyhow, Result};
@@ -609,6 +621,9 @@ pub mod hwinfo_dll {
         hw: Hwinfo,
         temp_key: Option<(u32, i32, i32)>,
         fan_key: Option<(u32, i32, i32)>,
+        /// Ids (in the `sensors` list) of the picked temperature and fan.
+        temp_id: Option<String>,
+        fan_id: Option<String>,
         /// Every temp/fan reading found by the initial scan (key + metadata).
         known: Vec<((u32, i32, i32), SensorValue)>,
     }
@@ -630,6 +645,8 @@ pub mod hwinfo_dll {
             Ok(Self {
                 temp_key: t.map(key),
                 fan_key: f.map(key),
+                temp_id: t.map(hwinfo_id),
+                fan_id: f.map(hwinfo_id),
                 known,
                 hw,
             })
@@ -648,6 +665,16 @@ pub mod hwinfo_dll {
     }
 
     impl HwinfoSource {
+        /// Id of the sensor `read` takes the temperature from.
+        pub fn temp_id(&self) -> Option<String> {
+            self.temp_id.clone()
+        }
+
+        /// Id of the sensor `read` takes the fan speed from.
+        pub fn fan_id(&self) -> Option<String> {
+            self.fan_id.clone()
+        }
+
         /// Current values of every sensor found at startup. Call after `read`
         /// (which refreshes the engine); readings that went invalid are dropped.
         pub fn sensors(&mut self) -> Vec<SensorValue> {
@@ -712,14 +739,20 @@ pub mod hwinfo_dll {
 pub(crate) struct SidecarLine {
     pub temp_c: Option<f32>,
     pub fan_rpm: Option<u32>,
+    /// Ids of the sensors the two values were picked from; `None` for
+    /// old-format lines.
+    pub cpu_temp_id: Option<String>,
+    pub fan_id: Option<String>,
     /// Empty for old-format lines (no `sensors` key).
     pub sensors: Vec<SensorValue>,
 }
 
 /// Parses a sidecar JSON line:
-/// `{"cpu_temp_c":42.0,"fan_rpm":2400,"sensors":[{"id":"/lpc/0/fan/1","hardware":"NCT6799D",
+/// `{"cpu_temp_c":42.0,"cpu_temp_id":"/lpc/0/temperature/0","fan_rpm":2400,"fan_id":"/lpc/0/fan/1",
+/// "sensors":[{"id":"/lpc/0/fan/1","hardware":"NCT6799D",
 /// "hardware_type":"SuperIO","name":"Fan #2","kind":"fan","value":2400}]}`
-/// (values may be `null`; `sensors` is optional, and malformed entries are skipped).
+/// (values may be `null`; `cpu_temp_id`, `fan_id` and `sensors` are optional,
+/// and malformed entries are skipped).
 ///
 /// Returns `None` if the line is not an object with the `cpu_temp_c` key.
 pub(crate) fn parse_sensor_line(line: &str) -> Option<SidecarLine> {
@@ -730,12 +763,14 @@ pub(crate) fn parse_sensor_line(line: &str) -> Option<SidecarLine> {
     }
     let temp_c = obj.get("cpu_temp_c").and_then(|x| x.as_f64()).map(|v| v as f32);
     let fan_rpm = obj.get("fan_rpm").and_then(|x| x.as_f64()).map(|v| v.round() as u32);
+    let id = |k: &str| obj.get(k).and_then(|x| x.as_str()).map(str::to_string);
+    let (cpu_temp_id, fan_id) = (id("cpu_temp_id"), id("fan_id"));
     let sensors = obj
         .get("sensors")
         .and_then(|x| x.as_array())
         .map(|a| a.iter().filter_map(parse_sensor_entry).collect())
         .unwrap_or_default();
-    Some(SidecarLine { temp_c, fan_rpm, sensors })
+    Some(SidecarLine { temp_c, fan_rpm, cpu_temp_id, fan_id, sensors })
 }
 
 fn parse_sensor_entry(v: &serde_json::Value) -> Option<SensorValue> {
@@ -772,6 +807,8 @@ mod sidecar {
     struct Shared {
         temp_c: Option<f32>,
         fan_rpm: Option<u32>,
+        cpu_temp_id: Option<String>,
+        fan_id: Option<String>,
         sensors: Vec<SensorValue>,
         at: Option<Instant>,
     }
@@ -781,6 +818,8 @@ mod sidecar {
     pub struct Latest {
         pub temp_c: Option<f32>,
         pub fan_rpm: Option<u32>,
+        pub cpu_temp_id: Option<String>,
+        pub fan_id: Option<String>,
         pub sensors: Vec<SensorValue>,
     }
 
@@ -840,6 +879,8 @@ mod sidecar {
                         if let Ok(mut s) = st.lock() {
                             s.temp_c = l.temp_c;
                             s.fan_rpm = l.fan_rpm;
+                            s.cpu_temp_id = l.cpu_temp_id;
+                            s.fan_id = l.fan_id;
                             s.sensors = l.sensors;
                             s.at = Some(Instant::now());
                         }
@@ -856,6 +897,8 @@ mod sidecar {
                     return Latest {
                         temp_c: s.temp_c,
                         fan_rpm: s.fan_rpm,
+                        cpu_temp_id: s.cpu_temp_id.clone(),
+                        fan_id: s.fan_id.clone(),
                         sensors: s.sensors.clone(),
                     };
                 }
@@ -923,6 +966,7 @@ impl SensorSource for WindowsSource {
             None => Default::default(),
         };
         let (mut temp, mut fan) = (latest.temp_c, latest.fan_rpm);
+        let (mut temp_id, mut fan_id) = (latest.cpu_temp_id, latest.fan_id);
         let mut sensors = latest.sensors;
 
         // Sidecar missing, or no data after the grace period (e.g. HVCI without
@@ -937,8 +981,14 @@ impl SensorSource for WindowsSource {
         }
         if let Some(hw) = &mut self.hwinfo {
             let s = hw.read();
-            temp = temp.or(s.temp_c);
-            fan = fan.or(s.fan_rpm);
+            if temp.is_none() && s.temp_c.is_some() {
+                temp = s.temp_c;
+                temp_id = hw.temp_id();
+            }
+            if fan.is_none() && s.fan_rpm.is_some() {
+                fan = s.fan_rpm;
+                fan_id = hw.fan_id();
+            }
             if sensors.is_empty() {
                 sensors = hw.sensors();
             }
@@ -952,11 +1002,14 @@ impl SensorSource for WindowsSource {
             }
         }
 
+        // Values from the HWiNFO shared memory carry no sensor id.
         if let Some(t) = temp {
             r.cpu_temp_c = Some(t);
+            r.cpu_temp_id = temp_id;
         }
         if let Some(f) = fan {
             r.fan_rpm = Some(f);
+            r.fan_id = fan_id;
         }
         r.sensors = sensors;
         Ok(r)
@@ -1050,7 +1103,7 @@ mod tests {
     }
 
     fn line(t: Option<f32>, f: Option<u32>) -> SidecarLine {
-        SidecarLine { temp_c: t, fan_rpm: f, sensors: Vec::new() }
+        SidecarLine { temp_c: t, fan_rpm: f, ..Default::default() }
     }
 
     #[test]
@@ -1060,6 +1113,38 @@ mod tests {
             parse_sensor_line("{\"cpu_temp_c\":42.5,\"fan_rpm\":2400}"),
             Some(line(Some(42.5), Some(2400)))
         );
+    }
+
+    #[test]
+    fn sidecar_line_parse_picked_ids() {
+        let l = parse_sensor_line(
+            r#"{"cpu_temp_c":42,"cpu_temp_id":"/amdcpu/0/temperature/2","fan_rpm":2400,"fan_id":"/lpc/nct6799d/0/fan/1","sensors":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(l.cpu_temp_id.as_deref(), Some("/amdcpu/0/temperature/2"));
+        assert_eq!(l.fan_id.as_deref(), Some("/lpc/nct6799d/0/fan/1"));
+        // Null ids (nothing picked) and the old format carry no id.
+        let n = parse_sensor_line(
+            r#"{"cpu_temp_c":null,"cpu_temp_id":null,"fan_rpm":null,"fan_id":null}"#,
+        )
+        .unwrap();
+        assert_eq!((n.cpu_temp_id, n.fan_id), (None, None));
+        let old = parse_sensor_line(r#"{"cpu_temp_c":42,"fan_rpm":2400,"sensors":[]}"#).unwrap();
+        assert_eq!((old.cpu_temp_id, old.fan_id), (None, None));
+    }
+
+    #[test]
+    fn hwinfo_ids_match_the_sensor_list() {
+        let r = HwinfoReading {
+            kind: READING_TYPE_FAN,
+            sensor: 3,
+            index: 7,
+            sensor_name: "Board".into(),
+            label: "CPUFANIN0".into(),
+            value: 1197.0,
+        };
+        assert_eq!(hwinfo_id(&r), "hwinfo/3/7/3");
+        assert_eq!(sensors_from_hwinfo(std::slice::from_ref(&r))[0].id, hwinfo_id(&r));
     }
 
     #[test]

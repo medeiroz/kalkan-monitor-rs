@@ -3,7 +3,10 @@
 // Every second, emits one JSON line on stdout with the CPU temperature and the
 // fan/pump RPM, picked by label, in the same spirit as the HWiNFO parser on the
 // Rust side:
-//     {"cpu_temp_c":42.0,"fan_rpm":2400,"sensors":[...]}
+//     {"cpu_temp_c":42.0,"cpu_temp_id":"/amdcpu/0/temperature/2",
+//      "fan_rpm":2400,"fan_id":"/lpc/nct6799d/0/fan/1","sensors":[...]}
+// "cpu_temp_id" / "fan_id" are the Identifiers of the sensors those two values
+// were picked from (null when nothing was picked); they match "id" in "sensors".
 // "sensors" lists every Temperature and Fan sensor on all hardware (CPU, GPU,
 // motherboard/SuperIO, controllers, storage, memory), each as
 //     {"id":"/lpc/nct6799d/0/fan/1","hardware":"NCT6799D","hardware_type":"SuperIO",
@@ -31,6 +34,9 @@ sealed class UpdateVisitor : IVisitor
     public void VisitSensor(ISensor sensor) { }
     public void VisitParameter(IParameter parameter) { }
 }
+
+// A sensor picked for the CPU temperature or the fan: its value and Identifier.
+readonly record struct Pick(float Value, string Id);
 
 static class Program
 {
@@ -77,18 +83,22 @@ static class Program
             {
                 computer.Accept(visitor);
 
-                float? cpuPref = null, tempAny = null;
-                float? fanPref = null, fanAny = null;
+                Pick? cpuPref = null, tempAny = null;
+                Pick? fanPref = null, fanAny = null;
 
                 var list = new StringBuilder();
                 foreach (IHardware hw in computer.Hardware)
                     Scan(hw, ref cpuPref, ref tempAny, ref fanPref, ref fanAny, list);
 
-                float? temp = cpuPref ?? tempAny;
-                float? fan = fanPref ?? fanAny;
+                // The picked sensors are reported by Identifier (the same ids as
+                // in "sensors"), so the Rust side never has to guess which sensor
+                // a value came from.
+                Pick? temp = cpuPref ?? tempAny;
+                Pick? fan = fanPref ?? fanAny;
 
                 stdout.WriteLine(
-                    "{\"cpu_temp_c\":" + Num(temp) + ",\"fan_rpm\":" + Num(fan) +
+                    "{\"cpu_temp_c\":" + Num(temp?.Value) + ",\"cpu_temp_id\":" + Id(temp) +
+                    ",\"fan_rpm\":" + Num(fan?.Value) + ",\"fan_id\":" + Id(fan) +
                     ",\"sensors\":[" + list + "]}");
                 stdout.Flush();
 
@@ -103,8 +113,8 @@ static class Program
 
     // Scans hardware + sub-hardware, accumulating temp/fan candidates and
     // appending every valid temp/fan sensor to `list` (comma-separated JSON objects).
-    static void Scan(IHardware hw, ref float? cpuPref, ref float? tempAny,
-                     ref float? fanPref, ref float? fanAny, StringBuilder list)
+    static void Scan(IHardware hw, ref Pick? cpuPref, ref Pick? tempAny,
+                     ref Pick? fanPref, ref Pick? fanAny, StringBuilder list)
     {
         bool isCpu = hw.HardwareType == HardwareType.Cpu;
         foreach (ISensor s in hw.Sensors)
@@ -114,19 +124,21 @@ static class Program
 
             if (s.SensorType == SensorType.Temperature && v > 0f && v <= 150f)
             {
-                tempAny ??= v;
+                var pick = new Pick(v, s.Identifier.ToString());
+                tempAny ??= pick;
                 if (cpuPref is null && (isCpu || Matches(name, CpuTempKeys)))
                 {
                     // on a CPU, prefer the most "package/die"-like label
-                    if (isCpu && Matches(name, CpuTempKeys)) cpuPref = v;
-                    else if (!isCpu && Matches(name, CpuTempKeys)) cpuPref = v;
+                    if (isCpu && Matches(name, CpuTempKeys)) cpuPref = pick;
+                    else if (!isCpu && Matches(name, CpuTempKeys)) cpuPref = pick;
                 }
                 Append(list, hw, s, "temp", v);
             }
             else if (s.SensorType == SensorType.Fan && v > 0f && v < 100000f)
             {
-                fanAny ??= v;
-                if (fanPref is null && Matches(name, FanKeys)) fanPref = v;
+                var pick = new Pick(v, s.Identifier.ToString());
+                fanAny ??= pick;
+                if (fanPref is null && Matches(name, FanKeys)) fanPref = pick;
                 Append(list, hw, s, "fan", v);
             }
         }
@@ -191,6 +203,9 @@ static class Program
         foreach (string k in keys) if (hay.Contains(k)) return true;
         return false;
     }
+
+    // JSON for a picked sensor's id, or null when nothing was picked.
+    static string Id(Pick? p) => p is Pick x ? Str(x.Id) : "null";
 
     static string Num(float? v) =>
         v is float f ? f.ToString("0.##", CultureInfo.InvariantCulture) : "null";

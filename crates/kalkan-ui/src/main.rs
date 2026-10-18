@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use kalkan_core::{
     available_serial_ports, build_frame, default_source, fan_options, open_display, scramble,
-    select_fan, select_temp, temp_options, FanSource, Reading, SerialTransport, Settings,
+    select_fan, select_temp, temp_options, FanSource, MaxTracker, Reading, SerialTransport, Settings,
     same_layout, SourceOption, TempSource, Transport,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
@@ -39,6 +39,8 @@ struct Mapping {
     temp: TempSource,
     fan: FanSource,
     load: usize,
+    /// Memory of Max CPU/GPU between readings (see `MaxTracker`).
+    max: MaxTracker,
 }
 
 /// Options currently shown in the temperature and fan selectors, with the
@@ -109,7 +111,7 @@ fn sync_model<S: PartialEq>(
 /// The selected index follows the chosen source (a sensor id), not a position
 /// that shifts as sensors appear.
 fn refresh_options(ui: &AppWindow, m: &Mapping, opts: &mut Options, r: &Reading) {
-    let temp = temp_options(r, &m.temp);
+    let temp = temp_options(r, &m.temp, &m.max);
     let fan = fan_options(r, &m.fan);
     if opts.first {
         ui.set_temp_sources(opts.temp_model.clone().into());
@@ -141,8 +143,8 @@ fn plain_model(items: &[&str]) -> ModelRc<SourceItem> {
 
 // -- source selection per field (index → reading value) -----------------------
 
-fn temp_value(r: &Reading, src: &TempSource) -> Option<f32> {
-    select_temp(src, r)
+fn temp_value(r: &Reading, src: &TempSource, max: &MaxTracker) -> Option<f32> {
+    select_temp(src, r, max)
 }
 
 fn fan_value(r: &Reading, src: &FanSource) -> Option<u32> {
@@ -172,7 +174,7 @@ fn update_dashboard(ui: &AppWindow, m: &Mapping, r: &Reading) {
     ui.set_cpu_state(match cl { 2 => "Critical", 1 => "High", _ => "Normal" }.into());
 
     // Temperature (the source chosen for the display)
-    match temp_value(r, &m.temp) {
+    match temp_value(r, &m.temp, &m.max) {
         Some(t) => {
             ui.set_cpu_temp_str(format!("{t:.0}").into());
             ui.set_temp_fraction((t / 100.0).clamp(0.0, 1.0));
@@ -205,7 +207,7 @@ fn update_dashboard(ui: &AppWindow, m: &Mapping, r: &Reading) {
 
 fn update_display(ui: &AppWindow, m: &Mapping, r: &Reading, frame_index: i32, sending: bool) {
     // --- temperature field (byte 0..255) ---
-    match temp_value(r, &m.temp) {
+    match temp_value(r, &m.temp, &m.max) {
         Some(t) => {
             let out = t.round().clamp(0.0, 255.0) as i32;
             let sat = t > 255.0 || t < 0.0;
@@ -261,7 +263,7 @@ fn update_display(ui: &AppWindow, m: &Mapping, r: &Reading, frame_index: i32, se
 
 /// Builds the 1.3 frame with the same values as the preview (`update_display`).
 fn display_frame(m: &Mapping, r: &Reading) -> Vec<u8> {
-    let temp = temp_value(r, &m.temp).map(|t| t.round().clamp(0.0, 255.0) as u8).unwrap_or(0);
+    let temp = temp_value(r, &m.temp, &m.max).map(|t| t.round().clamp(0.0, 255.0) as u8).unwrap_or(0);
     let fan = fan_value(r, &m.fan).map(|f| f.min(0xFFFF) as u16).unwrap_or(0);
     scramble(&build_frame(temp, fan))
 }
@@ -495,6 +497,7 @@ fn main() -> anyhow::Result<()> {
         temp: saved.temp_source,
         fan: saved.fan_source,
         load: 0,
+        max: MaxTracker::default(),
     }));
     let options = Rc::new(RefCell::new(Options::default()));
     refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &Reading::default());
@@ -561,6 +564,7 @@ fn main() -> anyhow::Result<()> {
             move || {
                 let Ok(reading) = source.borrow_mut().read() else { return };
                 *last.borrow_mut() = reading.clone();
+                mapping.borrow_mut().max.update(&reading);
                 let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
                 if let Some(ui) = ui_w.upgrade() {
                     refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading);

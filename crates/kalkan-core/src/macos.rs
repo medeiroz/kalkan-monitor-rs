@@ -417,18 +417,25 @@ pub fn build_sensors(
 /// the Intel SMC `TC0P`, `TC0D`, `TC0E` or `TC0F`. `None` leaves the `sysinfo`
 /// estimate in place.
 pub fn pick_cpu_temp(sensors: &[SensorValue]) -> Option<f32> {
-    let temp = |id: &str| sensors.iter().find(|s| s.kind == SensorKind::Temp && s.id == id).map(|s| s.value);
+    pick_cpu_temp_sensor(sensors).map(|s| s.value)
+}
+
+/// The sensor behind [`pick_cpu_temp`].
+pub fn pick_cpu_temp_sensor(sensors: &[SensorValue]) -> Option<&SensorValue> {
+    let temp = |id: &str| sensors.iter().find(|s| s.kind == SensorKind::Temp && s.id == id);
     temp(CPU_DIE_AVERAGE_ID).or_else(|| AUTO_SMC_KEYS.iter().find_map(|k| temp(&format!("smc/{k}"))))
 }
 
 /// The automatic fan: `F0`, else the first fan. A fan reading 0 RPM is
 /// reported as such: Macs stop their fans when cool.
 pub fn pick_fan(sensors: &[SensorValue]) -> Option<u32> {
+    pick_fan_sensor(sensors).map(|s| s.value.round().max(0.0) as u32)
+}
+
+/// The sensor behind [`pick_fan`].
+pub fn pick_fan_sensor(sensors: &[SensorValue]) -> Option<&SensorValue> {
     let fans = || sensors.iter().filter(|s| s.kind == SensorKind::Fan);
-    fans()
-        .find(|s| s.id == "smc/F0Ac")
-        .or_else(|| fans().next())
-        .map(|s| s.value.round().max(0.0) as u32)
+    fans().find(|s| s.id == "smc/F0Ac").or_else(|| fans().next())
 }
 
 // -- the macOS source -------------------------------------------------------------------
@@ -472,8 +479,12 @@ impl SensorSource for MacSource {
         let s = backend.sample();
         let sensors = build_sensors(&self.chip, &s.hid, &s.smc_temps, &s.fans);
         // sysinfo's guess stays as the fallback when IOKit has no CPU sensor.
-        r.cpu_temp_c = pick_cpu_temp(&sensors).or(r.cpu_temp_c);
-        r.fan_rpm = pick_fan(&sensors);
+        let temp = pick_cpu_temp_sensor(&sensors);
+        r.cpu_temp_c = temp.map(|s| s.value).or(r.cpu_temp_c);
+        r.cpu_temp_id = temp.map(|s| s.id.clone());
+        let fan = pick_fan_sensor(&sensors);
+        r.fan_rpm = fan.map(|s| s.value.round().max(0.0) as u32);
+        r.fan_id = fan.map(|s| s.id.clone());
         r.sensors = sensors;
         Ok(r)
     }
@@ -483,7 +494,9 @@ impl SensorSource for MacSource {
 mod tests {
     use super::*;
     use crate::naming::{classify, Category};
-    use crate::selection::{fan_options, select_fan, select_temp, temp_options, FanSource, TempSource};
+    use crate::selection::{
+        fan_options, select_fan, select_temp, temp_options, FanSource, MaxTracker, TempSource,
+    };
 
     fn k(s: &str) -> u32 {
         fourcc(s)
@@ -719,16 +732,20 @@ mod tests {
         let r = Reading {
             cpu_temp_c: pick_cpu_temp(&s),
             fan_rpm: pick_fan(&s),
+            cpu_temp_id: pick_cpu_temp_sensor(&s).map(|x| x.id.clone()),
+            fan_id: pick_fan_sensor(&s).map(|x| x.id.clone()),
             sensors: s,
             ..Default::default()
         };
+        let max = MaxTracker::default();
         // Max CPU/GPU compares the CPU average (50) with the GPU core (44).
-        assert_eq!(select_temp(&TempSource::MaxCpuGpu, &r), Some(50.0));
-        assert_eq!(select_temp(&TempSource::Sensor("iohid/PMU tdie10".into()), &r), Some(60.0));
+        assert_eq!(select_temp(&TempSource::MaxCpuGpu, &r, &max), Some(50.0));
+        assert_eq!(select_temp(&TempSource::Sensor("iohid/PMU tdie10".into()), &r, &max), Some(60.0));
         assert_eq!(select_fan(&FanSource::Sensor("smc/F0Ac".into()), &r), Some(0));
-        let t = temp_options(&r, &TempSource::Auto);
+        let t = temp_options(&r, &TempSource::Auto, &max);
         assert_eq!(t[0].secondary, "CPU · CPU Die (average)");
         assert!(t.iter().any(|o| o.group == "Storage" && o.primary == "NAND CH0"));
+        assert_eq!(fan_options(&r, &FanSource::Auto)[0].secondary, "Motherboard · Fan 1");
         assert_eq!(fan_options(&r, &FanSource::Auto)[1].primary, "Fan 1");
     }
 
@@ -751,5 +768,7 @@ mod tests {
         assert_eq!(r.cpu_temp_c, Some(50.0));
         assert_eq!(r.fan_rpm, Some(1500));
         assert_eq!(r.sensors.len(), 4);
+        assert_eq!(r.cpu_temp_id.as_deref(), Some(CPU_DIE_AVERAGE_ID));
+        assert_eq!(r.fan_id.as_deref(), Some("smc/F0Ac"));
     }
 }

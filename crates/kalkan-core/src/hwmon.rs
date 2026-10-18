@@ -218,6 +218,11 @@ pub fn read_hwmon(root: &Path) -> Vec<HwmonSensor> {
 /// The automatic CPU temperature: k10temp `Tctl` (or `Tdie`), else coretemp
 /// `Package id 0`, else zenpower `Tdie`, else the first CPU sensor.
 pub fn pick_cpu_temp(sensors: &[HwmonSensor]) -> Option<f32> {
+    pick_cpu_temp_sensor(sensors).map(|s| s.sensor.value)
+}
+
+/// The sensor behind [`pick_cpu_temp`].
+pub fn pick_cpu_temp_sensor(sensors: &[HwmonSensor]) -> Option<&HwmonSensor> {
     let temps = || sensors.iter().filter(|s| s.sensor.kind == SensorKind::Temp);
     let find = |chip: &str, names: &[&str]| {
         names.iter().find_map(|n| {
@@ -228,13 +233,17 @@ pub fn pick_cpu_temp(sensors: &[HwmonSensor]) -> Option<f32> {
         .or_else(|| find("coretemp", &["Package id 0"]))
         .or_else(|| find("zenpower", &["Tdie"]))
         .or_else(|| temps().find(|s| s.sensor.hardware_type == "Cpu"))
-        .map(|s| s.sensor.value)
 }
 
 /// The automatic fan/pump: a running fan labeled pump, else one labeled CPU,
 /// else the first running motherboard fan. A fan reading 0 RPM is an empty
 /// header, so it is never picked automatically.
 pub fn pick_fan(sensors: &[HwmonSensor]) -> Option<u32> {
+    pick_fan_sensor(sensors).map(|s| s.sensor.value.round() as u32)
+}
+
+/// The sensor behind [`pick_fan`].
+pub fn pick_fan_sensor(sensors: &[HwmonSensor]) -> Option<&HwmonSensor> {
     let fans = || {
         sensors
             .iter()
@@ -244,7 +253,6 @@ pub fn pick_fan(sensors: &[HwmonSensor]) -> Option<u32> {
     labeled("pump")
         .or_else(|| labeled("cpu"))
         .or_else(|| fans().find(|s| s.sensor.hardware_type == "Motherboard"))
-        .map(|s| s.sensor.value.round() as u32)
 }
 
 // -- CPU model name -----------------------------------------------------------
@@ -409,8 +417,14 @@ impl SensorSource for LinuxSource {
         let mut r = self.sys.read()?;
         let found = read_hwmon(&self.root);
         // sysinfo's guess stays as the fallback when no hwmon CPU sensor exists.
-        r.cpu_temp_c = pick_cpu_temp(&found).or(r.cpu_temp_c);
-        r.fan_rpm = pick_fan(&found);
+        // The ids name the picked sensors; with no hwmon CPU sensor there is
+        // no id and the label stays generic.
+        let temp = pick_cpu_temp_sensor(&found);
+        r.cpu_temp_c = temp.map(|s| s.sensor.value).or(r.cpu_temp_c);
+        r.cpu_temp_id = temp.map(|s| s.sensor.id.clone());
+        let fan = pick_fan_sensor(&found);
+        r.fan_rpm = fan.map(|s| s.sensor.value.round() as u32);
+        r.fan_id = fan.map(|s| s.sensor.id.clone());
         r.sensors = found
             .into_iter()
             .map(|mut h| {
@@ -585,7 +599,8 @@ mod tests {
         assert_eq!(by_id(&v, "hwmon/amdgpu/hwmon2/temp1").sensor.name, "GPU Core");
         assert_eq!(by_id(&v, "hwmon/amdgpu/hwmon2/temp2").sensor.name, "GPU Hot Spot");
         let r = Reading { cpu_temp_c: Some(40.0), sensors: v.into_iter().map(|h| h.sensor).collect(), ..Default::default() };
-        assert_eq!(crate::select_temp(&crate::TempSource::MaxCpuGpu, &r), Some(52.0));
+        let max = crate::MaxTracker::default();
+        assert_eq!(crate::select_temp(&crate::TempSource::MaxCpuGpu, &r, &max), Some(52.0));
     }
 
     #[test]
@@ -653,6 +668,13 @@ mod tests {
         assert_eq!(r.cpu_temp_c, Some(61.25));
         assert_eq!(r.fan_rpm, Some(2650));
         assert_eq!(r.sensors.len(), 11);
+        // The ids point at sensors of the list, and Auto resolves through them.
+        let (t, f) = (r.cpu_temp_id.clone().unwrap(), r.fan_id.clone().unwrap());
+        let sensor = |id: &str| r.sensors.iter().find(|s| s.id == id).unwrap();
+        assert_eq!((sensor(&t).kind, sensor(&t).value), (SensorKind::Temp, 61.25));
+        assert_eq!((sensor(&f).kind, sensor(&f).value), (SensorKind::Fan, 2650.0));
+        let o = crate::temp_options(&r, &crate::TempSource::Auto, &crate::MaxTracker::default());
+        assert_eq!(o[0].secondary, format!("CPU · {}", crate::naming::friendly_name(sensor(&t))));
     }
 
     #[test]
