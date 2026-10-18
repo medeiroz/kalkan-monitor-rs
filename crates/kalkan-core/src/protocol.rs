@@ -1,19 +1,19 @@
-//! Protocolo de aplicação do display — formato e embaralhamento dos pacotes.
+//! Display application protocol — packet format and scrambling.
 //!
-//! **Versão 1.3.** Totalmente reconstruído por engenharia reversa estática
-//! (Ghidra via REA) da classe `Sysctl` do binário
-//! `Kalkan PC SmartMonitor DZ V1.3.exe`. Ver `docs/protocol.md` para os
-//! endereços e o pseudocódigo de origem.
+//! **Version 1.3.** Fully reconstructed by static reverse engineering
+//! (Ghidra via REA) of the `Sysctl` class in the binary
+//! `Kalkan PC SmartMonitor DZ V1.3.exe`. See `docs/protocol.md` for the
+//! addresses and the source pseudocode.
 //!
-//! O protocolo da 1.3 é **muito mais simples** que o da 1.2 e **incompatível**
-//! com ele:
-//!   * **Sem handshake / sem seed** — o host apenas abre a serial e envia frames.
-//!   * **Frame de 5 bytes** `[0x74, 0x00, temp, fanHi, fanLo]` (sem `cpu_load` e
-//!     sem índice de frame, que existiam na 1.2).
-//!   * **Embaralhamento trivial**: a partir do byte 2, cada byte é XORado com
-//!     `0x02`; os dois primeiros bytes (cabeçalho `0x74 0x00`) vão literais.
+//! The 1.3 protocol is **much simpler** than the 1.2 one and **incompatible**
+//! with it:
+//!   * **No handshake / no seed** — the host just opens the serial port and sends frames.
+//!   * **5-byte frame** `[0x74, 0x00, temp, fanHi, fanLo]` (no `cpu_load` and
+//!     no frame index, which existed in the 1.2).
+//!   * **Trivial scrambling**: from byte 2 on, each byte is XORed with
+//!     `0x02`; the first two bytes (header `0x74 0x00`) go out literal.
 //!
-//! Origem (`Sysctl::processTrans`, `FUN_1400062b0`):
+//! Source (`Sysctl::processTrans`, `FUN_1400062b0`):
 //! ```text
 //! buf.clear();
 //! buf.append('t'); buf.append('\0');      // 0x74 0x00
@@ -25,33 +25,33 @@
 
 use crate::sensors::Reading;
 
-/// Tamanho do frame enviado ao display — 5 bytes.
+/// Size of the frame sent to the display — 5 bytes.
 pub const FRAME_LEN: usize = 5;
 
-/// Cabeçalho literal do frame (`'t'`, `0x00`), não embaralhado.
+/// Literal frame header (`'t'`, `0x00`), not scrambled.
 pub const HEADER: [u8; 2] = [0x74, 0x00];
 
-/// Byte de XOR aplicado do índice 2 em diante (o "scrambler" da 1.3).
+/// XOR byte applied from index 2 onward (the 1.3 "scrambler").
 pub const SCRAMBLE_XOR: u8 = 0x02;
 
-/// Monta o frame de dados cru (antes do XOR): `Sysctl::processTrans`.
+/// Builds the raw data frame (before the XOR): `Sysctl::processTrans`.
 ///
 /// Layout (5 bytes):
-/// | offset | conteúdo |
+/// | offset | content |
 /// |--------|----------|
 /// | 0 | `0x74` (`'t'`) |
 /// | 1 | `0x00` |
 /// | 2 | `temp` (°C, 1 byte) |
-/// | 3 | `fan` byte alto (big-endian) |
-/// | 4 | `fan` byte baixo |
+/// | 3 | `fan` high byte (big-endian) |
+/// | 4 | `fan` low byte |
 pub fn build_frame(temp: u8, fan: u16) -> [u8; FRAME_LEN] {
     [HEADER[0], HEADER[1], temp, (fan >> 8) as u8, fan as u8]
 }
 
-/// Embaralha o frame: XOR de `0x02` do byte 2 ao fim; cabeçalho literal.
+/// Scrambles the frame: XOR with `0x02` from byte 2 to the end; header literal.
 ///
-/// Porte fiel do laço observado em `FUN_1400062b0` (o original XORa a partir de
-/// `data + 2`). Os dois primeiros bytes (`0x74 0x00`) são preservados.
+/// Faithful port of the loop seen in `FUN_1400062b0` (the original XORs from
+/// `data + 2`). The first two bytes (`0x74 0x00`) are preserved.
 pub fn scramble(frame: &[u8]) -> Vec<u8> {
     let mut out = frame.to_vec();
     for b in out.iter_mut().skip(HEADER.len()) {
@@ -60,7 +60,7 @@ pub fn scramble(frame: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Converte um valor de temperatura em °C para o byte do frame (satura 0..=255).
+/// Converts a temperature in °C to the frame byte (saturates to 0..=255).
 fn temp_byte(reading: &Reading) -> u8 {
     reading
         .cpu_temp_c
@@ -68,24 +68,24 @@ fn temp_byte(reading: &Reading) -> u8 {
         .unwrap_or(0)
 }
 
-/// Converte RPM para o campo de 2 bytes do frame (satura em 0xFFFF).
+/// Converts RPM to the frame's 2-byte field (saturates at 0xFFFF).
 fn fan_word(reading: &Reading) -> u16 {
     reading.fan_rpm.map(|f| f.min(0xFFFF) as u16).unwrap_or(0)
 }
 
-/// Monta os pacotes a enviar ao display a partir de uma leitura de sensores.
+/// Builds the packets to send to the display from a sensor reading.
 pub trait PacketBuilder: Send {
-    /// Produz zero ou mais pacotes prontos para `Transport::write`.
+    /// Produces zero or more packets ready for `Transport::write`.
     fn build(&mut self, reading: &Reading) -> Vec<Vec<u8>>;
 
-    /// Tamanho do frame esperado pelo dispositivo.
+    /// Frame size expected by the device.
     fn frame_len(&self) -> usize;
 }
 
-/// Construtor de pacotes do protocolo real do Kalkan SmartMonitor **1.3**.
+/// Packet builder for the real Kalkan SmartMonitor **1.3** protocol.
 ///
-/// Sem estado: a 1.3 não tem seed nem contador de frames. Para cada leitura,
-/// monta o frame de 5 bytes e aplica o XOR.
+/// Stateless: the 1.3 has no seed or frame counter. For each reading, it
+/// builds the 5-byte frame and applies the XOR.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KalkanBuilder;
 
@@ -120,16 +120,16 @@ mod tests {
     fn scramble_preserves_header() {
         let f = build_frame(40, 1200);
         let s = scramble(&f);
-        assert_eq!(&s[..2], &[0x74, 0x00]); // cabeçalho literal
+        assert_eq!(&s[..2], &[0x74, 0x00]); // literal header
         assert_eq!(s.len(), FRAME_LEN);
     }
 
     #[test]
     fn scramble_regression_vector() {
-        // Vetor de regressão da 1.3, conferido contra FUN_1400062b0:
+        // 1.3 regression vector, checked against FUN_1400062b0:
         // temp=40 (0x28), fan=1200 (0x04B0).
-        // cru       : 74 00 28 04 B0
-        // scrambled : 74 00 2A 06 B2   (bytes 2.. XORados com 0x02)
+        // raw       : 74 00 28 04 B0
+        // scrambled : 74 00 2A 06 B2   (bytes 2.. XORed with 0x02)
         let f = build_frame(40, 1200);
         assert_eq!(f, [0x74, 0x00, 0x28, 0x04, 0xB0]);
         assert_eq!(scramble(&f), vec![0x74, 0x00, 0x2A, 0x06, 0xB2]);

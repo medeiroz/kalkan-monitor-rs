@@ -1,13 +1,13 @@
-//! Kalkan Monitor — app de interface (shell com sidebar, tema claro).
+//! Kalkan Monitor — UI app (sidebar shell, light theme).
 //!
-//! UI nova, desacoplada do núcleo: consome `kalkan-core` (sensores + protocolo)
-//! e mostra CPU/temperatura/fan em tempo real, além de deixar o usuário escolher
-//! qual fonte alimenta cada um dos 3 campos do display do cooler, com prévia.
+//! New UI, decoupled from the core: consumes `kalkan-core` (sensors + protocol)
+//! and shows CPU/temperature/fan in real time, and lets the user choose which
+//! source feeds each of the 3 fields of the cooler's display, with a preview.
 //!
-//! A matemática de clamp/arredondamento da prévia vive aqui (não no Slint) para
-//! bater exatamente com o que `kalkan-core` serializa no frame.
+//! The preview's clamp/rounding math lives here (not in Slint) so it matches
+//! exactly what `kalkan-core` serializes into the frame.
 
-// Em release, app de janela (sem console atrás); em debug o console fica, para logs.
+// In release, a windowed app (no console behind it); in debug the console stays, for logs.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::cell::RefCell;
@@ -22,7 +22,7 @@ use slint::{ModelRc, SharedString, Timer, VecModel};
 
 slint::include_modules!();
 
-/// Mapa das fontes escolhidas para cada campo do display (índice no ComboBox).
+/// Map of the sources chosen for each display field (index into the ComboBox).
 #[derive(Clone, Copy)]
 struct Mapping {
     temp: usize,
@@ -41,28 +41,28 @@ fn model(items: &[&str]) -> ModelRc<SharedString> {
     ModelRc::new(VecModel::from(v))
 }
 
-// -- seleção de fonte por campo (índice → valor da leitura) -------------------
+// -- source selection per field (index → reading value) -----------------------
 
 fn temp_value(r: &Reading, idx: usize) -> Option<f32> {
     match idx {
         0 => r.cpu_temp_c, // CPU (die)
-        _ => None,         // GPU / água: sem backend
+        _ => None,         // GPU / water: no backend
     }
 }
 
 fn fan_value(r: &Reading, _idx: usize) -> Option<u32> {
-    r.fan_rpm // nenhuma fonte de fan disponível ainda (todas caem aqui)
+    r.fan_rpm // no fan source available yet (all of them land here)
 }
 
 fn load_value(r: &Reading, idx: usize) -> Option<f32> {
     match idx {
-        0 => Some(r.cpu_load), // Uso de CPU
-        1 => Some(r.ram_load), // Uso de RAM
-        _ => None,             // GPU: sem backend
+        0 => Some(r.cpu_load), // CPU usage
+        1 => Some(r.ram_load), // RAM usage
+        _ => None,             // GPU: no backend
     }
 }
 
-// -- níveis (normal / alerta / crítico) para o dashboard ----------------------
+// -- levels (normal / warning / critical) for the dashboard -------------------
 
 fn level(value: f32, warn: f32, crit: f32) -> i32 {
     if value >= crit { 2 } else if value >= warn { 1 } else { 0 }
@@ -74,22 +74,22 @@ fn update_dashboard(ui: &AppWindow, r: &Reading) {
     ui.set_cpu_load_str(format!("{:.0}", r.cpu_load).into());
     let cl = level(r.cpu_load, 70.0, 90.0);
     ui.set_cpu_level(cl);
-    ui.set_cpu_state(match cl { 2 => "Crítico", 1 => "Alto", _ => "Normal" }.into());
+    ui.set_cpu_state(match cl { 2 => "Critical", 1 => "High", _ => "Normal" }.into());
 
-    // Temperatura
+    // Temperature
     match r.cpu_temp_c {
         Some(t) => {
             ui.set_cpu_temp_str(format!("{t:.0}").into());
             ui.set_temp_fraction((t / 100.0).clamp(0.0, 1.0));
             let tl = level(t, 60.0, 80.0);
             ui.set_temp_level(tl);
-            ui.set_temp_state(match tl { 2 => "Crítico", 1 => "Quente", _ => "Normal" }.into());
+            ui.set_temp_state(match tl { 2 => "Critical", 1 => "Hot", _ => "Normal" }.into());
         }
         None => {
             ui.set_cpu_temp_str("--".into());
             ui.set_temp_fraction(0.0);
             ui.set_temp_level(0);
-            ui.set_temp_state("Sem leitura".into());
+            ui.set_temp_state("No reading".into());
         }
     }
 
@@ -103,59 +103,59 @@ fn update_dashboard(ui: &AppWindow, r: &Reading) {
         None => {
             ui.set_fan_str("--".into());
             ui.set_fan_fraction(0.0);
-            ui.set_fan_state("Sem sensor nesta plataforma".into());
+            ui.set_fan_state("No sensor on this platform".into());
         }
     }
 }
 
 fn update_display(ui: &AppWindow, m: Mapping, r: &Reading, frame_index: i32, sending: bool) {
-    // --- campo temperatura (byte 0..255) ---
+    // --- temperature field (byte 0..255) ---
     match temp_value(r, m.temp) {
         Some(t) => {
             let out = t.round().clamp(0.0, 255.0) as i32;
             let sat = t > 255.0 || t < 0.0;
             ui.set_prev_temp(format!("{out}").into());
             ui.set_temp_sends(
-                if sat { format!("Envia: {out} (saturado)") } else { format!("Envia: {out} (0–255)") }.into(),
+                if sat { format!("Sends: {out} (saturated)") } else { format!("Sends: {out} (0–255)") }.into(),
             );
             ui.set_temp_sends_warn(sat);
         }
         None => {
             ui.set_prev_temp("--".into());
-            ui.set_temp_sends("Envia: 0 · sem fonte nesta plataforma".into());
+            ui.set_temp_sends("Sends: 0 · no source on this platform".into());
             ui.set_temp_sends_warn(true);
         }
     }
 
-    // --- campo fan (2 bytes, 0..65535) ---
+    // --- fan field (2 bytes, 0..65535) ---
     match fan_value(r, m.fan) {
         Some(f) => {
             let out = f.min(0xFFFF) as i32;
             let sat = f > 0xFFFF;
             ui.set_prev_fan(format!("{out}").into());
             ui.set_fan_sends(
-                if sat { format!("Envia: {out} (saturado)") } else { format!("Envia: {out} (0–65535)") }.into(),
+                if sat { format!("Sends: {out} (saturated)") } else { format!("Sends: {out} (0–65535)") }.into(),
             );
             ui.set_fan_sends_warn(sat);
         }
         None => {
             ui.set_prev_fan("--".into());
-            ui.set_fan_sends("Envia: 0 · sem fonte nesta plataforma".into());
+            ui.set_fan_sends("Sends: 0 · no source on this platform".into());
             ui.set_fan_sends_warn(true);
         }
     }
 
-    // --- campo uso % (byte, clamp 0..100) ---
+    // --- usage % field (byte, clamp 0..100) ---
     match load_value(r, m.load) {
         Some(l) => {
             let out = l.round().clamp(0.0, 100.0) as i32;
             ui.set_prev_load(format!("{out}").into());
-            ui.set_load_sends(format!("Envia: {out} (0–100)").into());
+            ui.set_load_sends(format!("Sends: {out} (0–100)").into());
             ui.set_load_sends_warn(false);
         }
         None => {
             ui.set_prev_load("--".into());
-            ui.set_load_sends("Envia: 0 · sem fonte nesta plataforma".into());
+            ui.set_load_sends("Sends: 0 · no source on this platform".into());
             ui.set_load_sends_warn(true);
         }
     }
@@ -164,18 +164,18 @@ fn update_display(ui: &AppWindow, m: Mapping, r: &Reading, frame_index: i32, sen
     ui.set_prev_sending(sending);
 }
 
-/// Monta o frame 1.3 com os mesmos valores da prévia (`update_display`).
+/// Builds the 1.3 frame with the same values as the preview (`update_display`).
 fn display_frame(m: Mapping, r: &Reading) -> Vec<u8> {
     let temp = temp_value(r, m.temp).map(|t| t.round().clamp(0.0, 255.0) as u8).unwrap_or(0);
     let fan = fan_value(r, m.fan).map(|f| f.min(0xFFFF) as u16).unwrap_or(0);
     scramble(&build_frame(temp, fan))
 }
 
-/// Envia um frame ao display, (re)abrindo a porta quando preciso.
+/// Sends a frame to the display, (re)opening the port when needed.
 ///
-/// Sem porta aberta, tenta `open_display()` a cada tick (como o original, que
-/// reconecta sozinho quando o cooler é plugado). Erro de escrita derruba a
-/// conexão; o próximo tick tenta de novo.
+/// With no open port, tries `open_display()` on every tick (like the original,
+/// which reconnects by itself when the cooler is plugged in). A write error
+/// drops the connection; the next tick tries again.
 fn send_frame(ui: &AppWindow, port: &mut Option<SerialTransport>, pkt: &[u8]) {
     if port.is_none() {
         match open_display() {
@@ -196,16 +196,16 @@ fn send_frame(ui: &AppWindow, port: &mut Option<SerialTransport>, pkt: &[u8]) {
         Err(e) => {
             *port = None;
             ui.set_conn_state(ConnState::Error);
-            ui.set_hid_error(format!("falha ao enviar: {e}").into());
+            ui.set_hid_error(format!("failed to send: {e}").into());
         }
     }
 }
 
-/// No Windows, garante que o app rode elevado (como o original): se não estiver,
-/// relança a si mesmo via UAC e encerra a instância atual. O processo elevado é
-/// o que consegue carregar o driver de kernel do sidecar de sensores. Se o
-/// usuário recusar o UAC, segue sem elevação (sensores caem no fallback).
-/// Defina `KALKAN_NO_ELEVATE=1` para desabilitar (desenvolvimento).
+/// On Windows, makes sure the app runs elevated (like the original): if it is
+/// not, relaunches itself via UAC and exits the current instance. The elevated
+/// process is the one able to load the sensor sidecar's kernel driver. If the
+/// user declines the UAC prompt, it carries on without elevation (sensors fall
+/// back). Set `KALKAN_NO_ELEVATE=1` to disable (development).
 #[cfg(windows)]
 fn ensure_elevated() {
     use core::ffi::c_void;
@@ -243,7 +243,7 @@ fn ensure_elevated() {
         ) -> *mut c_void;
     }
 
-    // SAFETY: chamadas FFI padrão; tratamos retornos e fechamos o token.
+    // SAFETY: standard FFI calls; we handle return values and close the token.
     unsafe {
         let mut token: *mut c_void = core::ptr::null_mut();
         let mut elevated = false;
@@ -278,11 +278,11 @@ fn ensure_elevated() {
             core::ptr::null(),
             SW_SHOWNORMAL,
         );
-        // ShellExecuteW retorna > 32 em sucesso: a instância elevada assumiu.
+        // ShellExecuteW returns > 32 on success: the elevated instance took over.
         if (r as isize) > 32 {
             std::process::exit(0);
         }
-        // Recusado/falhou: segue sem elevação.
+        // Declined/failed: carry on without elevation.
     }
 }
 
@@ -293,17 +293,17 @@ fn main() -> anyhow::Result<()> {
     ensure_elevated();
     let ui = AppWindow::new()?;
 
-    // Atalho de teste: KALKAN_PAGE=0|1|2 abre direto numa tela.
+    // Test shortcut: KALKAN_PAGE=0|1|2 opens straight on a screen.
     if let Ok(p) = std::env::var("KALKAN_PAGE") {
         ui.set_active_page(p.parse().unwrap_or(0));
     }
 
-    // Modelos das fontes de cada campo (indisponíveis ficam marcadas).
-    ui.set_temp_sources(model(&["CPU (die)", "GPU · sem backend", "Água/líquido · sem backend"]));
-    ui.set_fan_sources(model(&["Bomba · sem backend", "Fan CPU · sem backend", "Fan gabinete · sem backend"]));
-    ui.set_load_sources(model(&["Uso de CPU", "Uso de RAM", "GPU · sem backend"]));
+    // Source models for each field (unavailable ones are marked).
+    ui.set_temp_sources(model(&["CPU (die)", "GPU · no backend", "Water/liquid · no backend"]));
+    ui.set_fan_sources(model(&["Pump · no backend", "CPU fan · no backend", "Case fan · no backend"]));
+    ui.set_load_sources(model(&["CPU usage", "RAM usage", "GPU · no backend"]));
 
-    // Descoberta best-effort do display 1.3 nas portas seriais (VID/PID).
+    // Best-effort discovery of the 1.3 display on the serial ports (VID/PID).
     match available_serial_ports() {
         Ok(ports) => {
             if let Some(d) = ports.iter().find(|p| p.is_display()) {
@@ -319,26 +319,26 @@ fn main() -> anyhow::Result<()> {
                     )
                     .into(),
                 );
-                ui.set_conn_state(ConnState::Disconnected); // só Connected após abrir a porta
+                ui.set_conn_state(ConnState::Disconnected); // Connected only after the port is opened
             } else {
-                ui.set_device_label("nenhum display reconhecido".into());
-                ui.set_device_detail("plugue o cooler e rode `kalkan list`".into());
+                ui.set_device_label("no display recognized".into());
+                ui.set_device_detail("plug in the cooler and run `kalkan list`".into());
                 ui.set_conn_state(ConnState::Disconnected);
             }
         }
         Err(e) => {
-            ui.set_device_label("serial indisponível".into());
-            ui.set_hid_error(format!("serial indisponível: {e}").into());
+            ui.set_device_label("serial unavailable".into());
+            ui.set_hid_error(format!("serial unavailable: {e}").into());
             ui.set_conn_state(ConnState::Error);
         }
     }
 
-    // Estado compartilhado entre o timer e o callback de troca de slot.
+    // State shared between the timer and the slot-change callback.
     let mapping = Rc::new(RefCell::new(Mapping::default()));
     let last = Rc::new(RefCell::new(Reading::default()));
     let frame = Rc::new(RefCell::new(0i32));
 
-    // Callback: usuário trocou a fonte de um campo → recalcula a prévia na hora.
+    // Callback: the user changed a field's source → recompute the preview right away.
     {
         let (ui_w, map, lastr, framr) = (ui.as_weak(), mapping.clone(), last.clone(), frame.clone());
         ui.on_slot_changed(move |slot, index| {
@@ -357,12 +357,12 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Primeira amostra (descartada — sysinfo precisa de duas para o %CPU).
+    // First sample (discarded — sysinfo needs two for the CPU %).
     let source = Rc::new(RefCell::new(default_source()));
     let _ = source.borrow_mut().read();
 
-    // Intervalo fixo de 1 s, igual ao app original (sem seletor de frequência:
-    // a cadência PC → display é sempre a mesma).
+    // Fixed 1 s interval, same as the original app (no frequency selector:
+    // the PC → display cadence is always the same).
     let timer = Timer::default();
     {
         let (ui_w, source, mapping, last, frame) =

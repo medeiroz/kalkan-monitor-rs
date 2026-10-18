@@ -1,45 +1,45 @@
-//! Camadas de transporte para o display do watercooler.
+//! Transport layers for the watercooler display.
 //!
-//! A **1.3** fala com o dispositivo só por **porta serial** (`QSerialPort`,
-//! classe `Transport` no binário; ver `docs/protocol.md`). Use
-//! [`SerialTransport::open_display`] para os parâmetros exatos do cooler.
+//! The **1.3** talks to the device over a **serial port only** (`QSerialPort`,
+//! class `Transport` in the binary; see `docs/protocol.md`). Use
+//! [`SerialTransport::open_display`] for the cooler's exact parameters.
 //!
-//! [`HidTransport`] é mantido como legado da 1.2 / diagnóstico; a 1.3 não o
-//! usa. As duas ficam atrás de um único trait `Transport`.
+//! [`HidTransport`] is kept as a 1.2 legacy / diagnostics path; the 1.3 does
+//! not use it. Both sit behind a single `Transport` trait.
 
 use anyhow::{anyhow, Result};
 use std::time::Duration;
 
-/// Um canal já aberto capaz de enviar pacotes ao display e ler respostas.
+/// An already-open channel able to send packets to the display and read replies.
 pub trait Transport: Send {
-    /// Envia um pacote (um "report" HID ou um frame serial) ao dispositivo.
+    /// Sends a packet (an HID "report" or a serial frame) to the device.
     fn write(&mut self, data: &[u8]) -> Result<usize>;
 
-    /// Lê até `buf.len()` bytes, respeitando `timeout`. Retorna quantos leu.
+    /// Reads up to `buf.len()` bytes, honoring `timeout`. Returns how many were read.
     fn read(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize>;
 
-    /// Nome legível do canal, para logs/UI.
+    /// Human-readable channel name, for logs/UI.
     fn description(&self) -> String;
 }
 
-/// Transporte USB HID.
+/// USB HID transport.
 ///
-/// Observação da reversa: o original chama `hid_set_nonblocking(dev, 0)`
-/// imediatamente antes de cada `hid_write`, ou seja, escrita **bloqueante**.
-/// Replicamos esse comportamento para igualar a temporização do protocolo.
+/// Reverse-engineering note: the original calls `hid_set_nonblocking(dev, 0)`
+/// right before each `hid_write`, i.e. a **blocking** write. We replicate that
+/// behavior to match the protocol timing.
 pub struct HidTransport {
     device: hidapi::HidDevice,
     label: String,
 }
 
 impl HidTransport {
-    /// Abre o primeiro dispositivo cujo (vid, pid) casa com o pedido —
-    /// mesma estratégia de `HidDeviceController::isOpen` (enumera e compara
-    /// vid em `dev_info+8` e pid em `dev_info+10`).
+    /// Opens the first device whose (vid, pid) matches the request —
+    /// same strategy as `HidDeviceController::isOpen` (enumerates and compares
+    /// vid at `dev_info+8` and pid at `dev_info+10`).
     pub fn open(api: &hidapi::HidApi, vid: u16, pid: u16) -> Result<Self> {
         let device = api
             .open(vid, pid)
-            .map_err(|e| anyhow!("falha ao abrir HID {vid:04x}:{pid:04x}: {e}"))?;
+            .map_err(|e| anyhow!("failed to open HID {vid:04x}:{pid:04x}: {e}"))?;
         device.set_blocking_mode(true)?; // equivale a hid_set_nonblocking(dev, 0)
         Ok(Self {
             device,
@@ -50,8 +50,8 @@ impl HidTransport {
 
 impl Transport for HidTransport {
     fn write(&mut self, data: &[u8]) -> Result<usize> {
-        // hidapi exige que o byte 0 seja o Report ID. O chamador deve montar o
-        // buffer já com o report id na frente (ver `protocol`).
+        // hidapi requires byte 0 to be the Report ID. The caller must build the
+        // buffer with the report id already in front (see `protocol`).
         Ok(self.device.write(data)?)
     }
 
@@ -66,7 +66,7 @@ impl Transport for HidTransport {
     }
 }
 
-/// Transporte serial / COM, para os modelos que usam `QSerialPort`.
+/// Serial / COM transport, for the models that use `QSerialPort`.
 pub struct SerialTransport {
     port: Box<dyn serialport::SerialPort>,
     label: String,
@@ -77,18 +77,18 @@ impl SerialTransport {
         let port = serialport::new(path, baud)
             .timeout(Duration::from_millis(100))
             .open()
-            .map_err(|e| anyhow!("falha ao abrir serial {path} @ {baud}: {e}"))?;
+            .map_err(|e| anyhow!("failed to open serial {path} @ {baud}: {e}"))?;
         Ok(Self {
             port,
             label: format!("serial {path} @ {baud}"),
         })
     }
 
-    /// Abre a porta com os parâmetros exatos do display 1.3.
+    /// Opens the port with the 1.3 display's exact parameters.
     ///
-    /// De `FUN_1400083d0`: 1 Mbps, 8 data bits, sem paridade, 1 stop bit, sem
-    /// controle de fluxo (os padrões do `serialport` já são 8N1/sem-fluxo, mas
-    /// deixamos explícito para casar com o original byte a byte).
+    /// From `FUN_1400083d0`: 1 Mbps, 8 data bits, no parity, 1 stop bit, no flow
+    /// control (the `serialport` defaults are already 8N1/no flow control, but we
+    /// spell it out to match the original byte for byte).
     pub fn open_display(path: &str) -> Result<Self> {
         let port = serialport::new(path, crate::BAUD)
             .data_bits(serialport::DataBits::Eight)
@@ -97,7 +97,7 @@ impl SerialTransport {
             .flow_control(serialport::FlowControl::None)
             .timeout(Duration::from_millis(100))
             .open()
-            .map_err(|e| anyhow!("falha ao abrir display 1.3 em {path}: {e}"))?;
+            .map_err(|e| anyhow!("failed to open 1.3 display on {path}: {e}"))?;
         Ok(Self {
             port,
             label: format!("serial {path} @ {} (Kalkan 1.3)", crate::BAUD),

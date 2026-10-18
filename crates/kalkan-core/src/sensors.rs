@@ -1,38 +1,38 @@
-//! Fontes de sensores.
+//! Sensor sources.
 //!
-//! O original lê CPU/temperatura/fan do **HWiNFO** (via `HWiNFO64.dll`), que só
-//! existe no Windows. Para ser multiplataforma trocamos essa fonte por `sysinfo`
-//! (CPU load e, onde disponível, temperaturas/fans) e deixamos o trait aberto
-//! para fontes específicas por SO (lm-sensors no Linux, IOKit/SMC no macOS,
-//! LibreHardwareMonitor no Windows) adicionadas depois.
+//! The original reads CPU/temperature/fan from **HWiNFO** (via `HWiNFO64.dll`),
+//! which only exists on Windows. To be cross-platform we replace that source
+//! with `sysinfo` (CPU load and, where available, temperatures/fans) and leave
+//! the trait open for OS-specific sources (lm-sensors on Linux, IOKit/SMC on
+//! macOS, LibreHardwareMonitor on Windows) added later.
 
 use anyhow::Result;
 
-/// Uma leitura instantânea do que o display costuma mostrar.
+/// An instantaneous reading of what the display usually shows.
 #[derive(Debug, Clone, Default)]
 pub struct Reading {
-    /// Uso de CPU em porcentagem (0..=100).
+    /// CPU usage in percent (0..=100).
     pub cpu_load: f32,
-    /// Uso de memória RAM em porcentagem (0..=100).
+    /// RAM usage in percent (0..=100).
     pub ram_load: f32,
-    /// Temperatura da CPU em °C, quando a plataforma expõe.
+    /// CPU temperature in °C, when the platform exposes it.
     pub cpu_temp_c: Option<f32>,
-    /// Rotação de fan/bomba em RPM, quando disponível.
+    /// Fan/pump speed in RPM, when available.
     pub fan_rpm: Option<u32>,
 }
 
-/// Qualquer coisa capaz de produzir uma `Reading`.
+/// Anything able to produce a `Reading`.
 pub trait SensorSource: Send {
     fn read(&mut self) -> Result<Reading>;
 }
 
-/// Fonte multiplataforma baseada em `sysinfo`.
+/// Cross-platform source based on `sysinfo`.
 ///
-/// Entrega **uso de CPU** em qualquer SO e **temperatura de CPU** onde o
-/// `sysinfo` expõe componentes térmicos (no macOS Apple Silicon são os
-/// sensores `PMU tdie*`; no Linux, `coretemp`/`k10temp`; etc.). A rotação de
-/// fan **não** vem do `sysinfo` — precisa de backend específico (SMC no macOS,
-/// lm-sensors no Linux), então fica `None` aqui.
+/// Delivers **CPU usage** on any OS and **CPU temperature** where `sysinfo`
+/// exposes thermal components (on Apple Silicon macOS these are the
+/// `PMU tdie*` sensors; on Linux, `coretemp`/`k10temp`; etc.). Fan speed does
+/// **not** come from `sysinfo` — it needs a specific backend (SMC on macOS,
+/// lm-sensors on Linux), so it is `None` here.
 pub struct SysinfoSource {
     sys: sysinfo::System,
     components: sysinfo::Components,
@@ -46,11 +46,11 @@ impl SysinfoSource {
         }
     }
 
-    /// Estima a temperatura de CPU a partir dos componentes térmicos.
+    /// Estimates the CPU temperature from the thermal components.
     ///
-    /// Seleciona sensores cujo rótulo sugere die/CPU e cuja leitura é
-    /// plausível (0..150 °C — descarta os sensores desconectados que o macOS
-    /// reporta como ~-9199 °C) e tira a média.
+    /// Selects sensors whose label suggests die/CPU and whose reading is
+    /// plausible (0..150 °C — discards the disconnected sensors macOS reports
+    /// as ~-9199 °C) and averages them.
     fn cpu_temperature(&self) -> Option<f32> {
         let is_cpu_label = |label: &str| {
             let l = label.to_lowercase();
@@ -75,7 +75,7 @@ impl SysinfoSource {
             return Some(sum / n as f32);
         }
 
-        // Nenhum rótulo bateu: cai para a média de qualquer sensor plausível.
+        // No label matched: fall back to the average of any plausible sensor.
         let (mut sum, mut n) = (0.0f32, 0u32);
         for c in self.components.iter() {
             if let Some(t) = c.temperature() {
@@ -115,16 +115,16 @@ impl SensorSource for SysinfoSource {
             cpu_load,
             ram_load,
             cpu_temp_c,
-            // Fan: sysinfo não expõe RPM; no Windows vem do HWiNFO (ver abaixo).
+            // Fan: sysinfo does not expose RPM; on Windows it comes from HWiNFO (see below).
             fan_rpm: None,
         })
     }
 }
 
-/// Fonte padrão da plataforma.
+/// Default source for the platform.
 ///
-/// No Windows usa [`WindowsSource`] (CPU/RAM do `sysinfo` + temperatura e fan do
-/// HWiNFO); nas demais plataformas, [`SysinfoSource`].
+/// On Windows it uses [`WindowsSource`] (CPU/RAM from `sysinfo` + temperature and
+/// fan from HWiNFO); on other platforms, [`SysinfoSource`].
 pub fn default_source() -> Box<dyn SensorSource> {
     #[cfg(windows)]
     {
@@ -137,18 +137,18 @@ pub fn default_source() -> Box<dyn SensorSource> {
 }
 
 // ============================================================================
-// Backend do Windows — HWiNFO Shared Memory (`Global\HWiNFO_SENS_SM2`)
+// Windows backend — HWiNFO Shared Memory (`Global\HWiNFO_SENS_SM2`)
 // ============================================================================
 //
-// Mesma fonte que o app original (HwiHandler → HWiNFO64.dll). O HWiNFO, com
-// "Shared Memory Support" ligado, publica um bloco de memória compartilhada com
-// um cabeçalho e N "reading elements". Cada elemento tem um tipo (1=temp,
-// 3=fan), rótulos e um `double` com o valor. Layout do SDK oficial
+// Same source as the original app (HwiHandler → HWiNFO64.dll). With "Shared
+// Memory Support" enabled, HWiNFO publishes a shared-memory block with a header
+// and N "reading elements". Each element has a type (1=temp, 3=fan), labels and
+// a `double` with the value. Layout from the official SDK
 // (`HWiNFO_SENSORS_SHARED_MEM2` / `HWiNFO_SENSORS_READING_ELEMENT`).
 //
-// Leitura não exige administrador; exige o HWiNFO rodando com SHM habilitado.
+// Reading does not require administrator; it requires HWiNFO running with SHM enabled.
 
-/// Valores extraídos de uma amostra do HWiNFO.
+/// Values extracted from an HWiNFO sample.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HwinfoSnapshot {
     pub temp_c: Option<f32>,
@@ -159,16 +159,16 @@ const HWINFO_SIG: &[u8; 4] = b"SiWH";
 const READING_TYPE_TEMP: u32 = 1;
 const READING_TYPE_FAN: u32 = 3;
 
-// Offsets no cabeçalho.
+// Offsets in the header.
 const H_OFF_READING_SECTION: usize = 32;
 const H_OFF_READING_SIZE: usize = 36;
 const H_OFF_READING_COUNT: usize = 40;
 const HEADER_MIN_LEN: usize = 44;
 
-// Offsets dentro de um reading element.
+// Offsets inside a reading element.
 const R_OFF_TYPE: usize = 0;
-const R_OFF_LABEL_USER: usize = 140; // após tReading/index/id (12) + szLabelOrig (128)
-const R_OFF_VALUE: usize = 284; // após szLabelUser (128) + szUnit (16)
+const R_OFF_LABEL_USER: usize = 140; // after tReading/index/id (12) + szLabelOrig (128)
+const R_OFF_VALUE: usize = 284; // after szLabelUser (128) + szUnit (16)
 const R_MIN_LEN: usize = 292;
 
 fn rd_u32(buf: &[u8], off: usize) -> Option<u32> {
@@ -181,7 +181,7 @@ fn rd_f64(buf: &[u8], off: usize) -> Option<f64> {
     })
 }
 
-/// Lê um rótulo C (terminado em NUL) como string (bytes >=0x20, latin-1 simples).
+/// Reads a C label (NUL-terminated) as a string (bytes >=0x20, plain latin-1).
 fn rd_label(buf: &[u8], off: usize, max: usize) -> String {
     let end = (off + max).min(buf.len());
     let slice = &buf[off.min(buf.len())..end];
@@ -194,12 +194,12 @@ fn label_matches(label: &str, keys: &[&str]) -> bool {
     keys.iter().any(|k| l.contains(k))
 }
 
-/// Parser **puro** do bloco de SHM do HWiNFO (sem chamadas de SO — testável).
+/// **Pure** parser of the HWiNFO SHM block (no OS calls — testable).
 ///
-/// Escolhe:
-///   * **temperatura**: rótulo com `cpu/tctl/tdie/core/package` e valor
-///     plausível (0..=150 °C); senão a primeira temperatura plausível.
-///   * **fan**: rótulo com `pump/cpu/aio/water/liquid`; senão o primeiro fan > 0.
+/// Picks:
+///   * **temperature**: label with `cpu/tctl/tdie/core/package` and a plausible
+///     value (0..=150 °C); otherwise the first plausible temperature.
+///   * **fan**: label with `pump/cpu/aio/water/liquid`; otherwise the first fan > 0.
 pub(crate) fn parse_hwinfo(buf: &[u8]) -> HwinfoSnapshot {
     let mut out = HwinfoSnapshot::default();
     if buf.len() < HEADER_MIN_LEN || &buf[0..4] != HWINFO_SIG {
@@ -267,7 +267,7 @@ mod hwinfo_shm {
 
     const FILE_MAP_READ: u32 = 0x0004;
     const SHM_NAME: &str = "Global\\HWiNFO_SENS_SM2";
-    // Teto de leitura: o bloco real do HWiNFO tem ~alguns MB no máximo.
+    // Read ceiling: the real HWiNFO block is a few MB at most.
     const MAX_MAP_BYTES: usize = 16 * 1024 * 1024;
 
     #[link(name = "kernel32")]
@@ -288,13 +288,13 @@ mod hwinfo_shm {
         fn CloseHandle(h_object: *mut c_void) -> i32;
     }
 
-    /// Lê uma amostra do HWiNFO, ou `None` se a SHM não estiver disponível.
+    /// Reads an HWiNFO sample, or `None` if the SHM is not available.
     pub fn read() -> Option<HwinfoSnapshot> {
         let mut name: Vec<u16> = SHM_NAME.encode_utf16().collect();
         name.push(0);
 
-        // SAFETY: nomes válidos; tratamos ponteiros nulos; a view é somente
-        // leitura e desmapeada/fechada antes de retornar.
+        // SAFETY: valid names; null pointers are handled; the view is read-only
+        // and unmapped/closed before returning.
         unsafe {
             let mapping = OpenFileMappingW(FILE_MAP_READ, 0, name.as_ptr());
             if mapping.is_null() {
@@ -305,9 +305,9 @@ mod hwinfo_shm {
                 CloseHandle(mapping);
                 return None;
             }
-            // Mapeamos a view inteira (0 = mapping todo). Não sabemos o tamanho
-            // exato aqui; lemos o cabeçalho e deduzimos o fim da seção de
-            // readings, limitado por MAX_MAP_BYTES.
+            // We map the whole view (0 = the entire mapping). We do not know the
+            // exact size here; we read the header and deduce the end of the
+            // readings section, capped by MAX_MAP_BYTES.
             let head = std::slice::from_raw_parts(view as *const u8, 44);
             let sec = u32::from_le_bytes([head[32], head[33], head[34], head[35]]) as usize;
             let size = u32::from_le_bytes([head[36], head[37], head[38], head[39]]) as usize;
@@ -325,21 +325,21 @@ mod hwinfo_shm {
 }
 
 // ============================================================================
-// Backend do Windows — motor HWiNFO embutido (`config.dat` = `HWiNFO64.dll`)
+// Windows backend — embedded HWiNFO engine (`config.dat` = `HWiNFO64.dll`)
 // ============================================================================
 //
-// O que o app original faz (`RunHwinfo`, `FUN_140002d80`): `LoadLibraryA(
-// "./config.dat")` — que é a DLL do SDK do HWiNFO renomeada, com driver próprio
-// compatível com HVCI — e resolve as funções **por ordinal**:
+// What the original app does (`RunHwinfo`, `FUN_140002d80`): `LoadLibraryA(
+// "./config.dat")` — which is the HWiNFO SDK DLL renamed, with its own
+// HVCI-compatible driver — and resolves the functions **by ordinal**:
 //
 //   590 Init(flags=0x40) -> int (0 = ok)      883 NumSensors() -> int
 //   726 Update()                               749 SelectSensor(int)
 //   106 GetReading(type, sensor, index, *Raw) -> bool
 //
-// O laço de leitura (`FUN_1400027e0`) percorre sensor × índice (0..0x200) ×
-// tipo ∈ {1 temp, 3 fan}. Exige administrador (o driver é carregado na hora).
+// The read loop (`FUN_1400027e0`) walks sensor × index (0..0x200) ×
+// type ∈ {1 temp, 3 fan}. Requires administrator (the driver is loaded on the fly).
 
-/// Uma leitura do motor HWiNFO (rótulo + valor), para diagnóstico/escolha.
+/// A reading from the HWiNFO engine (label + value), for diagnostics/selection.
 #[derive(Debug, Clone)]
 pub struct HwinfoReading {
     pub kind: u32,
@@ -363,14 +363,14 @@ pub mod hwinfo_dll {
     const ORD_SELECT_SENSOR: usize = 749;
     const ORD_GET_READING: usize = 106;
 
-    /// Índices máximos por sensor que o original varre (`0x200`).
+    /// Maximum indices per sensor that the original scans (`0x200`).
     const MAX_INDEX: i32 = 0x200;
 
-    /// Struct de saída de `GetReading` — 0x1D0 bytes (copiada inteira no original).
+    /// Output struct of `GetReading` — 0x1D0 bytes (copied whole in the original).
     const RAW_LEN: usize = 0x1D0;
     const RAW_OFF_VALUE: usize = 0x08; // f64
     const RAW_OFF_SENSOR_NAME: usize = 0x3C; // char[256]
-    const RAW_OFF_LABEL: usize = 0x148; // char[128] — onde o original busca "package"/"cpu"
+    const RAW_OFF_LABEL: usize = 0x148; // char[128] — where the original looks for "package"/"cpu"
     const RAW_OFF_TYPE: usize = 0x1C8; // u32
 
     type FnInit = unsafe extern "C" fn(u32) -> i32;
@@ -385,8 +385,8 @@ pub mod hwinfo_dll {
         fn GetProcAddress(h_module: *mut c_void, lp_proc_name: *const u8) -> *mut c_void;
     }
 
-    /// Onde procurar a DLL, em ordem: `KALKAN_HWINFO_DLL`; `config.dat` /
-    /// `HWiNFO64.dll` ao lado do executável; a instalação do app original.
+    /// Where to look for the DLL, in order: `KALKAN_HWINFO_DLL`; `config.dat` /
+    /// `HWiNFO64.dll` next to the executable; the original app's install.
     fn candidates() -> Vec<PathBuf> {
         let mut v = Vec::new();
         if let Some(p) = std::env::var_os("KALKAN_HWINFO_DLL") {
@@ -402,8 +402,8 @@ pub mod hwinfo_dll {
         v
     }
 
-    /// Motor HWiNFO carregado e inicializado. (A DLL fica carregada até o fim
-    /// do processo, como no original.)
+    /// Loaded and initialized HWiNFO engine. (The DLL stays loaded until the
+    /// process ends, as in the original.)
     pub struct Hwinfo {
         update: FnUpdate,
         num_sensors: FnNumSensors,
@@ -412,31 +412,31 @@ pub mod hwinfo_dll {
         pub path: PathBuf,
     }
 
-    // SAFETY: ponteiros de função para uma DLL que nunca é descarregada; o uso
-    // fica serializado pelo `&mut self` do chamador.
+    // SAFETY: function pointers into a DLL that is never unloaded; usage is
+    // serialized by the caller's `&mut self`.
     unsafe impl Send for Hwinfo {}
 
     impl Hwinfo {
-        /// Carrega a primeira DLL encontrada e chama `Init(0x40)`.
+        /// Loads the first DLL found and calls `Init(0x40)`.
         pub fn load() -> Result<Self> {
             let path = candidates()
                 .into_iter()
                 .find(|p| p.is_file())
-                .ok_or_else(|| anyhow!("DLL do HWiNFO (config.dat) não encontrada"))?;
+                .ok_or_else(|| anyhow!("HWiNFO DLL (config.dat) not found"))?;
             let mut wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().collect();
             wide.push(0);
 
-            // SAFETY: caminho terminado em NUL; ordinais conferidos contra o
-            // binário original; checamos cada ponteiro antes do transmute.
+            // SAFETY: NUL-terminated path; ordinals checked against the original
+            // binary; we check each pointer before the transmute.
             unsafe {
                 let module = LoadLibraryW(wide.as_ptr());
                 if module.is_null() {
-                    return Err(anyhow!("falha ao carregar {}", path.display()));
+                    return Err(anyhow!("failed to load {}", path.display()));
                 }
                 let proc = |ord: usize| -> Result<*mut c_void> {
                     let p = GetProcAddress(module, ord as *const u8);
                     if p.is_null() {
-                        Err(anyhow!("ordinal {ord} ausente em {}", path.display()))
+                        Err(anyhow!("ordinal {ord} missing in {}", path.display()))
                     } else {
                         Ok(p)
                     }
@@ -452,7 +452,7 @@ pub mod hwinfo_dll {
                 let rc = init(0x40);
                 if rc != 0 {
                     return Err(anyhow!(
-                        "Init do HWiNFO falhou ({rc}) — o app precisa rodar como administrador"
+                        "HWiNFO Init failed ({rc}) — the app must run as administrator"
                     ));
                 }
                 (hw.update)();
@@ -460,11 +460,11 @@ pub mod hwinfo_dll {
             }
         }
 
-        /// Atualiza e lista todas as leituras de temperatura e fan.
+        /// Updates and lists all temperature and fan readings.
         pub fn readings(&mut self) -> Vec<HwinfoReading> {
             let mut out = Vec::new();
             let mut raw = vec![0u8; RAW_LEN];
-            // SAFETY: `raw` tem o tamanho que o original reserva para a struct.
+            // SAFETY: `raw` has the size the original reserves for the struct.
             unsafe {
                 let n = (self.num_sensors)();
                 (self.update)();
@@ -491,9 +491,9 @@ pub mod hwinfo_dll {
             out
         }
 
-        /// Temperatura e fan da CPU, com a mesma escolha do original
-        /// (`FUN_1400023b0`): temp com "package"/"average" no rótulo; fan com
-        /// "cpu". Sem casamento, cai na primeira leitura plausível.
+        /// CPU temperature and fan, with the same choice as the original
+        /// (`FUN_1400023b0`): temp with "package"/"average" in the label; fan with
+        /// "cpu". With no match, falls back to the first plausible reading.
         pub fn snapshot(&mut self) -> HwinfoSnapshot {
             let all = self.readings();
             let (t, f) = pick(&all);
@@ -503,11 +503,11 @@ pub mod hwinfo_dll {
             }
         }
 
-        /// Relê só uma leitura já conhecida (após `update`).
+        /// Re-reads only an already-known reading (after `update`).
         fn value_of(&mut self, key: (u32, i32, i32)) -> Option<f64> {
             let (kind, sensor, index) = key;
             let mut raw = vec![0u8; RAW_LEN];
-            // SAFETY: idem `readings`.
+            // SAFETY: same as `readings`.
             unsafe {
                 (self.select_sensor)(sensor);
                 if !(self.get_reading)(kind, sensor, index, raw.as_mut_ptr()) || raw[0] == 0 {
@@ -518,8 +518,8 @@ pub mod hwinfo_dll {
         }
     }
 
-    /// Fonte de temp/fan sobre o motor HWiNFO: varre tudo uma vez para escolher
-    /// as leituras (como o original no `RunHwinfo`) e depois relê só essas duas.
+    /// Temp/fan source on top of the HWiNFO engine: scans everything once to pick
+    /// the readings (like the original in `RunHwinfo`) and then re-reads only those two.
     pub struct HwinfoSource {
         hw: Hwinfo,
         temp_key: Option<(u32, i32, i32)>,
@@ -540,7 +540,7 @@ pub mod hwinfo_dll {
         }
 
         pub fn read(&mut self) -> HwinfoSnapshot {
-            // SAFETY: ponteiro de função válido enquanto a DLL estiver carregada.
+            // SAFETY: function pointer valid while the DLL is loaded.
             unsafe { (self.hw.update)() };
             let temp = self.temp_key.and_then(|k| self.hw.value_of(k));
             let fan = self.fan_key.and_then(|k| self.hw.value_of(k));
@@ -580,19 +580,19 @@ pub mod hwinfo_dll {
 }
 
 // ============================================================================
-// Backend autossuficiente — sidecar LibreHardwareMonitor (`kalkan-sensord.exe`)
+// Self-contained backend — LibreHardwareMonitor sidecar (`kalkan-sensord.exe`)
 // ============================================================================
 //
-// Caminho principal (self-contained, como o original): um processo auxiliar
-// .NET que carrega o LibreHardwareMonitor (motor + driver de kernel próprio) e
-// emite leituras como JSON por linha no stdout. Lemos essa saída. Fica ao lado
-// do executável (ou via env KALKAN_SENSORD). Quando o sidecar não está presente
-// ou não entrega dados, caímos no HWiNFO SHM e, por fim, em `None`.
+// Main path (self-contained, like the original): a .NET helper process that
+// loads LibreHardwareMonitor (engine + its own kernel driver) and emits
+// readings as one JSON line per line on stdout. We read that output. It sits
+// next to the executable (or via env KALKAN_SENSORD). When the sidecar is
+// absent or delivers no data, we fall back to HWiNFO SHM and finally to `None`.
 
-/// Extrai `(temp_c, fan_rpm)` de uma linha JSON do sidecar:
-/// `{"cpu_temp_c":42.0,"fan_rpm":2400}` (valores podem ser `null`).
+/// Extracts `(temp_c, fan_rpm)` from a sidecar JSON line:
+/// `{"cpu_temp_c":42.0,"fan_rpm":2400}` (values may be `null`).
 ///
-/// Retorna `None` se a linha não for um objeto com a chave esperada.
+/// Returns `None` if the line is not an object with the expected key.
 pub(crate) fn parse_sensor_line(line: &str) -> Option<(Option<f32>, Option<u32>)> {
     let line = line.trim();
     if !line.starts_with('{') || !line.contains("cpu_temp_c") {
@@ -603,7 +603,7 @@ pub(crate) fn parse_sensor_line(line: &str) -> Option<(Option<f32>, Option<u32>)
     Some((temp, fan))
 }
 
-/// Lê o número associado a `key` num JSON simples e plano; `null` vira `None`.
+/// Reads the number associated with `key` in a simple, flat JSON; `null` becomes `None`.
 fn json_num(s: &str, key: &str) -> Option<f64> {
     let after_key = &s[s.find(key)? + key.len()..];
     let after_colon = &after_key[after_key.find(':')? + 1..];
@@ -632,14 +632,14 @@ mod sidecar {
         at: Option<Instant>,
     }
 
-    /// Processo sidecar em execução; encerrado no `Drop`.
+    /// Running sidecar process; terminated on `Drop`.
     pub struct Sidecar {
         child: Child,
         state: Arc<Mutex<Shared>>,
     }
 
-    /// Resolve o caminho do `kalkan-sensord.exe`: env `KALKAN_SENSORD`, ao lado
-    /// do executável, ou caminhos de desenvolvimento no repositório.
+    /// Resolves the path of `kalkan-sensord.exe`: env `KALKAN_SENSORD`, next to
+    /// the executable, or development paths in the repository.
     fn resolve_path() -> Option<PathBuf> {
         if let Some(p) = std::env::var_os("KALKAN_SENSORD") {
             let p = PathBuf::from(p);
@@ -663,11 +663,11 @@ mod sidecar {
     }
 
     impl Sidecar {
-        /// Spawna o sidecar e inicia a thread leitora; `None` se não existir.
+        /// Spawns the sidecar and starts the reader thread; `None` if it does not exist.
         pub fn spawn() -> Option<Self> {
             use std::os::windows::process::CommandExt;
-            // Sem isto, o Windows abre uma janela de console para o sidecar
-            // quando o pai é um app de janela (a UI).
+            // Without this, Windows opens a console window for the sidecar
+            // when the parent is a windowed app (the UI).
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
             let path = resolve_path()?;
@@ -696,7 +696,7 @@ mod sidecar {
             Some(Self { child, state })
         }
 
-        /// Última leitura, se recente (≤ 5 s); senão `(None, None)`.
+        /// Latest reading, if recent (≤ 5 s); otherwise `(None, None)`.
         pub fn latest(&self) -> (Option<f32>, Option<u32>) {
             if let Ok(s) = self.state.lock() {
                 if matches!(s.at, Some(at) if at.elapsed() < Duration::from_secs(5)) {
@@ -715,13 +715,13 @@ mod sidecar {
     }
 }
 
-/// Fonte de sensores do Windows.
+/// Windows sensor source.
 ///
-/// CPU/RAM load vêm do `sysinfo`. Temperatura e fan vêm, em ordem: do **sidecar
-/// LibreHardwareMonitor** (`kalkan-sensord.exe`, com o driver PawnIO — funciona
-/// sob HVCI); senão do **motor HWiNFO do app original** (`config.dat`, se
-/// instalado); senão do **HWiNFO Shared Memory** (se o HWiNFO estiver rodando);
-/// senão `None`. Ver `docs/sensors-windows.md`.
+/// CPU/RAM load come from `sysinfo`. Temperature and fan come, in order, from the
+/// **LibreHardwareMonitor sidecar** (`kalkan-sensord.exe`, with the PawnIO driver
+/// — works under HVCI); otherwise from the **original app's HWiNFO engine**
+/// (`config.dat`, if installed); otherwise from **HWiNFO Shared Memory** (if
+/// HWiNFO is running); otherwise `None`. See `docs/sensors-windows.md`.
 #[cfg(windows)]
 pub struct WindowsSource {
     sys: SysinfoSource,
@@ -731,8 +731,8 @@ pub struct WindowsSource {
     hwinfo_tried: bool,
 }
 
-/// Quanto esperar o sidecar entregar a primeira leitura antes de recorrer ao
-/// motor HWiNFO (o LibreHardwareMonitor leva alguns segundos para abrir).
+/// How long to wait for the sidecar to deliver its first reading before turning
+/// to the HWiNFO engine (LibreHardwareMonitor takes a few seconds to open).
 #[cfg(windows)]
 const SIDECAR_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -766,14 +766,14 @@ impl SensorSource for WindowsSource {
             None => (None, None),
         };
 
-        // Sidecar ausente, ou sem dados após a carência (ex.: HVCI sem PawnIO):
-        // tenta uma vez o motor HWiNFO do app original.
+        // Sidecar missing, or no data after the grace period (e.g. HVCI without
+        // PawnIO): try the original app's HWiNFO engine once.
         let sidecar_silent = self.sidecar.is_none() || self.started.elapsed() > SIDECAR_GRACE;
         if temp.is_none() && fan.is_none() && sidecar_silent && !self.hwinfo_tried {
             self.hwinfo_tried = true;
             self.hwinfo = hwinfo_dll::HwinfoSource::new().ok();
             if self.hwinfo.is_some() {
-                self.sidecar = None; // encerra o sidecar inútil
+                self.sidecar = None; // shut down the useless sidecar
             }
         }
         if let Some(hw) = &mut self.hwinfo {
@@ -782,7 +782,7 @@ impl SensorSource for WindowsSource {
             fan = fan.or(s.fan_rpm);
         }
 
-        // Fallback HWiNFO Shared Memory para o que ainda faltar.
+        // HWiNFO Shared Memory fallback for whatever is still missing.
         if temp.is_none() || fan.is_none() {
             if let Some(hw) = hwinfo_shm::read() {
                 temp = temp.or(hw.temp_c);
@@ -804,9 +804,9 @@ impl SensorSource for WindowsSource {
 mod tests {
     use super::*;
 
-    /// Monta um bloco de SHM sintético (cabeçalho + N readings) para o parser.
+    /// Builds a synthetic SHM block (header + N readings) for the parser.
     fn synth(readings: &[(u32, &str, f64)]) -> Vec<u8> {
-        let size = R_MIN_LEN; // tamanho do elemento neste teste
+        let size = R_MIN_LEN; // element size in this test
         let sec = HEADER_MIN_LEN;
         let mut buf = vec![0u8; sec + readings.len() * size];
         buf[0..4].copy_from_slice(HWINFO_SIG);
@@ -834,15 +834,15 @@ mod tests {
             (READING_TYPE_TEMP, "CPU (Tctl/Tdie)", 42.0),
             (READING_TYPE_FAN, "Chassis Fan #1", 800.0),
             (READING_TYPE_FAN, "Pump", 2400.0),
-            (3, "unit?", -1.0), // fan inválido (<=0) ignorado
+            (3, "unit?", -1.0), // invalid fan (<=0) ignored
         ]);
         let s = parse_hwinfo(&buf);
-        assert_eq!(s.temp_c, Some(42.0)); // preferiu o rótulo de CPU
-        assert_eq!(s.fan_rpm, Some(2400)); // preferiu "Pump"
+        assert_eq!(s.temp_c, Some(42.0)); // preferred the CPU label
+        assert_eq!(s.fan_rpm, Some(2400)); // preferred "Pump"
     }
 
-    /// Regra do original (`FUN_1400023b0`), com rótulos reais de um Ryzen 9800X3D
-    /// + Nuvoton NCT6799D lidos pelo motor HWiNFO.
+    /// The original's rule (`FUN_1400023b0`), with real labels from a Ryzen 9800X3D
+    /// + Nuvoton NCT6799D read by the HWiNFO engine.
     #[cfg(windows)]
     #[test]
     fn hwinfo_dll_pick_matches_original_rule() {
@@ -873,8 +873,8 @@ mod tests {
             (READING_TYPE_FAN, "Sys Fan", 1000.0),
         ]);
         let s = parse_hwinfo(&buf);
-        assert_eq!(s.temp_c, Some(50.0)); // sem rótulo de CPU → primeira temp
-        assert_eq!(s.fan_rpm, Some(1000)); // sem pump/cpu → primeiro fan
+        assert_eq!(s.temp_c, Some(50.0)); // no CPU label → first temp
+        assert_eq!(s.fan_rpm, Some(1000)); // no pump/cpu → first fan
     }
 
     #[test]
@@ -904,12 +904,12 @@ mod tests {
 
     #[test]
     fn sidecar_line_parse_partial_and_junk() {
-        // só temperatura
+        // temperature only
         assert_eq!(
             parse_sensor_line("{\"cpu_temp_c\":40,\"fan_rpm\":null}"),
             Some((Some(40.0), None))
         );
-        // linha inválida
+        // invalid line
         assert_eq!(parse_sensor_line("iniciando..."), None);
         assert_eq!(parse_sensor_line("{\"outra\":1}"), None);
     }

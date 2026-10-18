@@ -1,8 +1,8 @@
 /target
 
-# Artefatos de build do sidecar .NET
+# Build artifacts of the .NET sidecar
 sidecar/**/bin/
 sidecar/**/obj/
 
-# Log que o motor HWiNFO (config.dat) grava no diretório atual
+# Log written by the HWiNFO engine (config.dat) to the current directory
 -debug.log

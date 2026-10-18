@@ -1,16 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    kalkan-sensord — sidecar de sensores do Windows.
+    kalkan-sensord — Windows sensor sidecar.
 
-    Carrega o LibreHardwareMonitor (que, por sua vez, extrai e carrega o próprio
-    driver de kernel) e emite leituras de temperatura/fan como JSON por linha no
-    stdout, a cada 1 s. O processo Rust (kalkan-core, só no Windows) spawna este
-    executável e lê a saída. Publicado self-contained win-x64, então NÃO exige
-    .NET instalado na máquina do usuário.
+    Loads LibreHardwareMonitor (which in turn extracts and loads its own kernel
+    driver) and emits temperature/fan readings as one JSON line per second on
+    stdout. The Rust process (kalkan-core, Windows only) spawns this executable
+    and reads its output. Published self-contained win-x64, so it does NOT require
+    .NET to be installed on the user's machine.
 
-    Só é compilado/empacotado no artefato do Windows; macOS/Linux usam fontes
-    nativas (hwmon / SMC) e não precisam deste sidecar.
+    Only built/packaged in the Windows artifact; macOS/Linux use native sources
+    (hwmon / SMC) and do not need this sidecar.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -27,7 +27,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- LibreHardwareMonitor (MPL-2.0). Traz o driver de kernel assinado. -->
+    <!-- LibreHardwareMonitor (MPL-2.0). Ships the signed kernel driver. -->
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.*" />
   </ItemGroup>
 

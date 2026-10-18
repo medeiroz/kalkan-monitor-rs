@@ -1,6 +1,6 @@
 name: CI
 
-# Gatilhos automáticos desativados por enquanto; só roda manualmente.
+# Automatic triggers are disabled for now; manual runs only.
 on:
   # push:
   #   branches: [main]
@@ -20,7 +20,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Dependências do Linux (serial/HID + Slint)
+      - name: Linux dependencies (serial/HID + Slint)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update

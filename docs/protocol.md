@@ -1,79 +1,81 @@
-# Kalkan SmartMonitor **1.3** — notas de engenharia reversa
+# Kalkan SmartMonitor **1.3** — reverse-engineering notes
 
-Alvo analisado: `Kalkan PC SmartMonitor DZ V1.3.exe` (produtos a partir de
-jan/2026). SHA-256 do binário original: `faf27352654837fa95558c2b5f0e9db3755b763e2c08540fed15a7d37af39897`.
-Ferramenta: Ghidra 12.1.4 via REA. Tudo abaixo é **observado estaticamente** no
-binário (pseudocódigo + assembly x86-64).
+**English** | [Português (Brasil)](protocol-PT.md)
 
-> A engenharia reversa foi feita sobre uma cópia local com um patch de 1 byte
-> em `main` (desliga o anti-UAC do app — ver nota no fim); o código do protocolo
-> é idêntico ao do binário original e não é tocado por esse patch.
+Analyzed target: `Kalkan PC SmartMonitor DZ V1.3.exe` (products from
+Jan/2026). SHA-256 of the original binary: `faf27352654837fa95558c2b5f0e9db3755b763e2c08540fed15a7d37af39897`.
+Tool: Ghidra 12.1.4 via REA. Everything below was **observed statically** in the
+binary (pseudocode + x86-64 assembly).
 
-## O que mudou da 1.2 para a 1.3
+> The reverse engineering was done on a local copy with a 1-byte patch in
+> `main` (disables the app's anti-UAC — see the note at the end); the protocol
+> code is identical to the original binary's and is not touched by that patch.
 
-A 1.3 é **incompatível** com a 1.2 e **bem mais simples**:
+## What changed from 1.2 to 1.3
 
-| Aspecto | 1.2 | 1.3 |
+The 1.3 is **incompatible** with the 1.2 and **much simpler**:
+
+| Aspect | 1.2 | 1.3 |
 |---|---|---|
-| Transporte | HID (`hidapi`) **e** serial | **Só serial** (`QSerialPort`) |
-| Seleção do aparelho | VID/PID da config | VID/PID fixos no código (abaixo) |
-| Parâmetros seriais | — | **1 Mbps, 8N1, sem controle de fluxo** |
-| Handshake / seed | pacote `01 81 E3`, acha `0xE3` → seed | **nenhum** |
+| Transport | HID (`hidapi`) **and** serial | **Serial only** (`QSerialPort`) |
+| Device selection | VID/PID from config | VID/PID fixed in code (below) |
+| Serial parameters | — | **1 Mbps, 8N1, no flow control** |
+| Handshake / seed | packet `01 81 E3`, finds `0xE3` → seed | **none** |
 | Frame | 64 bytes `01 86 E0 idx temp fanHi fanLo cpu …` | **5 bytes** `74 00 temp fanHi fanLo` |
-| Embaralhamento | bit-a-bit com seed evoluindo | **XOR `0x02`** do byte 2 em diante |
-| `cpu_load` no frame | sim | **não** |
-| índice de frame | sim | **não** |
+| Scrambling | bitwise with an evolving seed | **XOR `0x02`** from byte 2 onward |
+| `cpu_load` in the frame | yes | **no** |
+| frame index | yes | **no** |
 
-## Arquitetura (classes)
+## Architecture (classes)
 
-- **`Sysctl`** (vftable `0x140036008`): o controlador exposto ao QML como
-  `sys_controller`. Lê sensores (via o tipo QML `HwiHandler`), monta o frame,
-  embaralha e **emite `emitSendData(QByteArray)`** (sinal, índice 4 →
-  `FUN_14002fcc0`). Também cuida de config (`GENERAL`/`Auto Run`/`Show Fah`/
-  `Language`/`Default Temp`/`Default Sped`) e idioma.
-- **`Transport`** (vftable `0x1400364e0`): encapsula um único `QSerialPort`
-  (em `this+0x10`). Slots `slotSendData(QByteArray)` (`FUN_140008640` — escreve
-  na serial) e `slotRead()`. O `Sysctl::emitSendData` é ligado ao
-  `Transport::slotSendData` no construtor do `Sysctl` (`FUN_140005330`).
+- **`Sysctl`** (vftable `0x140036008`): the controller exposed to QML as
+  `sys_controller`. Reads sensors (via the QML type `HwiHandler`), builds the
+  frame, scrambles it and **emits `emitSendData(QByteArray)`** (signal, index 4 →
+  `FUN_14002fcc0`). It also handles config (`GENERAL`/`Auto Run`/`Show Fah`/
+  `Language`/`Default Temp`/`Default Sped`) and language.
+- **`Transport`** (vftable `0x1400364e0`): wraps a single `QSerialPort`
+  (at `this+0x10`). Slots `slotSendData(QByteArray)` (`FUN_140008640` — writes
+  to the serial port) and `slotRead()`. `Sysctl::emitSendData` is connected to
+  `Transport::slotSendData` in the `Sysctl` constructor (`FUN_140005330`).
 
-## Abrir o dispositivo — `FUN_140008300` → `FUN_1400083d0`
+## Opening the device — `FUN_140008300` → `FUN_1400083d0`
 
-`Sysctl::connect` tenta dois pares (VID, PID), nesta ordem:
+`Sysctl::connect` tries two (VID, PID) pairs, in this order:
 
 1. **`1F3A:0008`**
-2. **`1A86:484A`** (família CH340 — ponte USB-serial comum)
+2. **`1A86:484A`** (CH340 family — a common USB-serial bridge)
 
 `FUN_1400083d0(this, vid, pid)`:
 
-1. `QSerialPortInfo::availablePorts()`; percorre casando `vendorIdentifier()` e
-   `productIdentifier()` com (vid, pid); guarda o `portName()`.
-2. Se achou: `setPortName`, abre (`open`, ReadWrite), e configura:
+1. `QSerialPortInfo::availablePorts()`; iterates matching `vendorIdentifier()` and
+   `productIdentifier()` against (vid, pid); keeps the `portName()`.
+2. If found: `setPortName`, opens (`open`, ReadWrite), and configures:
    - `setBaudRate(1000000, AllDirections)`
    - `setDataBits(8)`
    - `setParity(NoParity)`
    - `setStopBits(OneStop)`
    - `setFlowControl(NoFlowControl)`
-3. Loga `"open ok"` / `"open error"`. Retorna sucesso só se todos os `set*`
-   derem certo.
+3. Logs `"open ok"` / `"open error"`. Returns success only if all the `set*`
+   calls succeed.
 
-**Não há envio de pacote de handshake.** Depois de abrir, o app começa a mandar
-frames direto.
+**No handshake packet is sent.** After opening, the app starts sending frames
+right away.
 
-## Frame de dados e embaralhamento — `Sysctl::processTrans`, `FUN_1400062b0`
+## Data frame and scrambling — `Sysctl::processTrans`, `FUN_1400062b0`
 
-Chamado periodicamente (timer). Resumo:
+Called periodically (timer). Summary:
 
 ```c
 if (!opened) {                         // this+0x1c
-    opened = Transport::open();        // FUN_140008300 (ver acima)
-    if (opened) delay = 6;             // this+0x98: pula 6 ciclos após abrir
+    opened = Transport::open();        // FUN_140008300 (see above)
+    if (opened) delay = 6;             // this+0x98: skips 6 cycles after opening
     emit openedChanged();
 }
 if (opened) {
     if (delay != 0) { delay--; return; }
     if (Transport::bytesToWrite() == 0) {      // FUN_1400083a0 == 0
-        char  temp = *(u8  *)(this + 0x10);    // temperatura
-        u16   fan  = *(u16 *)(this + 0x12);    // rotação (big-endian no frame)
+        char  temp = *(u8  *)(this + 0x10);    // temperature
+        u16   fan  = *(u16 *)(this + 0x12);    // speed (big-endian in the frame)
 
         buf.clear();
         buf.append(0x74);  // 't'
@@ -82,46 +84,46 @@ if (opened) {
         buf.append(fan >> 8);
         buf.append(fan & 0xff);
 
-        for (i = 2; i < buf.size(); i++)   // cabeçalho (2 bytes) fica literal
+        for (i = 2; i < buf.size(); i++)   // header (2 bytes) stays literal
             buf[i] ^= 0x02;
 
-        emitSendData(buf);                 // -> Transport escreve na serial
+        emitSendData(buf);                 // -> Transport writes to the serial port
     }
 }
 ```
 
-### Layout do frame (5 bytes)
+### Frame layout (5 bytes)
 
-| offset | conteúdo | no fio (após XOR) |
-|--------|----------|-------------------|
+| offset | content | on the wire (after XOR) |
+|--------|---------|-------------------------|
 | 0 | `0x74` (`'t'`) | `0x74` (literal) |
 | 1 | `0x00` | `0x00` (literal) |
 | 2 | `temp` (°C) | `temp ^ 0x02` |
-| 3 | `fan` byte alto | `(fan>>8) ^ 0x02` |
-| 4 | `fan` byte baixo | `(fan&0xff) ^ 0x02` |
+| 3 | `fan` high byte | `(fan>>8) ^ 0x02` |
+| 4 | `fan` low byte | `(fan&0xff) ^ 0x02` |
 
-Exemplo (`temp=40`, `fan=1200`): cru `74 00 28 04 B0` → fio `74 00 2A 06 B2`.
+Example (`temp=40`, `fan=1200`): raw `74 00 28 04 B0` → wire `74 00 2A 06 B2`.
 
-## Porte em Rust
+## Rust port
 
-Implementado e testado em `crates/kalkan-core/src/protocol.rs`:
-`build_frame(temp, fan)`, `scramble(frame)` e `KalkanBuilder` (sem estado). Um
-vetor de regressão (`74 00 2A 06 B2`) trava o comportamento. A abertura por
-VID/PID + baud está em `device.rs` (`find_display_port`, `DISPLAY_IDS`) e
-`transport.rs` (`SerialTransport::open_display`), com o atalho `open_display()`
-em `lib.rs`. Rode `kalkan frame` (CLI) para o pipeline rodando offline e
-`kalkan list` para achar a porta do cooler.
+Implemented and tested in `crates/kalkan-core/src/protocol.rs`:
+`build_frame(temp, fan)`, `scramble(frame)` and `KalkanBuilder` (stateless). A
+regression vector (`74 00 2A 06 B2`) pins the behavior. Opening by VID/PID +
+baud rate lives in `device.rs` (`find_display_port`, `DISPLAY_IDS`) and
+`transport.rs` (`SerialTransport::open_display`), with the `open_display()`
+shortcut in `lib.rs`. Run `kalkan frame` (CLI) for the pipeline running offline
+and `kalkan list` to find the cooler's port.
 
-## Dependente de hardware
+## Hardware-dependent
 
-Nada do **conteúdo** do protocolo depende mais de observação: frame, XOR,
-VID/PID e parâmetros seriais estão todos reconstruídos. O único passo que exige
-o aparelho é confirmar que ele enumera com um dos VID/PID de [`DISPLAY_IDS`]
-(`kalkan list`), já que o cooler de teste só existe na versão 1.3.
+Nothing in the protocol **content** depends on observation anymore: frame, XOR,
+VID/PID and serial parameters are all reconstructed. The only step that needs
+the device is confirming that it enumerates with one of the VID/PIDs in
+[`DISPLAY_IDS`] (`kalkan list`), since the test cooler only exists in version 1.3.
 
-## Nota: anti-UAC (fora do protocolo)
+## Note: anti-UAC (outside the protocol)
 
-A `main` da 1.3 desliga o UAC (`EnableLUA=0` em
-`HKLM\…\Policies\System`) a cada início — comportamento removido à parte, por um
-patch de 1 byte no `.exe` instalado. Não tem relação com o protocolo do display
-e **não** é reproduzido neste porte.
+The 1.3's `main` turns UAC off (`EnableLUA=0` in
+`HKLM\…\Policies\System`) on every start — behavior removed separately, by a
+1-byte patch on the installed `.exe`. It has no relation to the display protocol
+and is **not** reproduced in this port.

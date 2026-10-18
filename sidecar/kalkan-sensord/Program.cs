@@ -1,19 +1,19 @@
-// kalkan-sensord — sidecar de sensores (Windows) baseado no LibreHardwareMonitor.
+// kalkan-sensord — Windows sensor sidecar based on LibreHardwareMonitor.
 //
-// Emite, a cada 1 s, uma linha JSON no stdout com temperatura de CPU e RPM de
-// fan/bomba escolhidos por rótulo, no mesmo espírito do parser do HWiNFO do lado
-// Rust:
+// Every second, emits one JSON line on stdout with the CPU temperature and the
+// fan/pump RPM, picked by label, in the same spirit as the HWiNFO parser on the
+// Rust side:
 //     {"cpu_temp_c":42.0,"fan_rpm":2400}
-// Valores desconhecidos saem como null. Se o motor não abrir (sem admin / driver
-// bloqueado), escreve o motivo no stderr e sai com código != 0 — o processo Rust
-// trata isso como "sem dados" e cai no fallback.
+// Unknown values are emitted as null. If the engine fails to open (no admin /
+// driver blocked), the reason is written to stderr and the process exits with a
+// non-zero code — the Rust process treats that as "no data" and falls back.
 //
-// Cadência fixa de 1 s para não sobrecarregar nada (casa com o laço do app).
+// Fixed 1 s cadence so nothing gets overloaded (matches the app's loop).
 
 using System.Globalization;
 using LibreHardwareMonitor.Hardware;
 
-// Atualiza hardware e subhardware (ex.: Super-I/O da placa-mãe fica em subhw).
+// Updates hardware and sub-hardware (e.g. the motherboard Super-I/O lives in subhw).
 sealed class UpdateVisitor : IVisitor
 {
     public void VisitComputer(IComputer computer) => computer.Traverse(this);
@@ -38,7 +38,7 @@ static class Program
         {
             IsCpuEnabled = true,
             IsMotherboardEnabled = true, // Super-I/O: fans
-            IsControllerEnabled = true,  // controladoras de fan (ex.: AIO)
+            IsControllerEnabled = true,  // fan controllers (e.g. AIO)
         };
 
         try
@@ -47,7 +47,7 @@ static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("kalkan-sensord: falha ao abrir o LibreHardwareMonitor: " + ex.Message);
+            Console.Error.WriteLine("kalkan-sensord: failed to open LibreHardwareMonitor: " + ex.Message);
             return 2;
         }
 
@@ -90,7 +90,7 @@ static class Program
         }
     }
 
-    // Varre hardware + subhardware acumulando candidatos de temp/fan.
+    // Scans hardware + sub-hardware, accumulating temp/fan candidates.
     static void Scan(IHardware hw, ref float? cpuPref, ref float? tempAny,
                      ref float? fanPref, ref float? fanAny)
     {
@@ -105,7 +105,7 @@ static class Program
                 tempAny ??= v;
                 if (cpuPref is null && (isCpu || Matches(name, CpuTempKeys)))
                 {
-                    // numa CPU, prefira o rótulo mais "de pacote/die"
+                    // on a CPU, prefer the most "package/die"-like label
                     if (isCpu && Matches(name, CpuTempKeys)) cpuPref = v;
                     else if (!isCpu && Matches(name, CpuTempKeys)) cpuPref = v;
                 }
@@ -120,7 +120,7 @@ static class Program
             Scan(sub, ref cpuPref, ref tempAny, ref fanPref, ref fanAny);
     }
 
-    // Diagnóstico: imprime todo o hardware/sensor que o LHM enxerga.
+    // Diagnostics: prints all hardware/sensors that LHM sees.
     static void Dump(IHardware hw, int depth)
     {
         string pad = new string(' ', depth * 2);

@@ -1,88 +1,90 @@
-# Sensores no Windows (temperatura e fan)
+# Sensors on Windows (temperature and fan)
 
-O Windows **não tem API** para temperatura de CPU nem RPM de fan. Esses valores
-vêm de MSRs do processador e do Super-I/O/Embedded Controller da placa — ambos
-só acessíveis em **ring 0 (kernel)**. Rodar "como administrador" não basta
-(admin ainda é ring 3); é preciso um **driver de kernel**. Por isso todo monitor
-(HWiNFO, LibreHardwareMonitor, Core Temp…) carrega um driver, e por isso o app
-original da Kalkan pede elevação: ele embute o motor do HWiNFO (`config.dat` **é**
-o `HWiNFO64.dll` do SDK, renomeado, com o driver embutido como recurso).
+**English** | [Português (Brasil)](sensors-windows-PT.md)
 
-A UI se **auto-eleva** no início (relança via UAC), como o original, para que os
-drivers possam ser usados. (`KALKAN_NO_ELEVATE=1` desliga, em dev.)
+Windows has **no API** for CPU temperature or fan RPM. Those values come from
+processor MSRs and from the board's Super-I/O/Embedded Controller — both only
+accessible in **ring 0 (kernel)**. Running "as administrator" is not enough
+(admin is still ring 3); a **kernel driver** is required. That is why every
+monitor (HWiNFO, LibreHardwareMonitor, Core Temp…) loads a driver, and why the
+original Kalkan app asks for elevation: it embeds the HWiNFO engine (`config.dat`
+**is** the SDK's `HWiNFO64.dll`, renamed, with the driver embedded as a resource).
 
-Ordem das fontes (`WindowsSource`): **sidecar LibreHardwareMonitor + PawnIO** →
-**motor HWiNFO do app original** → **HWiNFO Shared Memory** → `None` (sem erro —
-temp/fan aparecem como `--`). CPU/RAM load vêm sempre do `sysinfo`.
+The UI **self-elevates** at startup (relaunches via UAC), like the original, so
+the drivers can be used. (`KALKAN_NO_ELEVATE=1` turns it off, in dev.)
 
-macOS e Linux **não usam** nada disso: têm fontes nativas sem driver que a gente
-distribua (hwmon no Linux, SMC no macOS).
+Source order (`WindowsSource`): **LibreHardwareMonitor sidecar + PawnIO** →
+**original app's HWiNFO engine** → **HWiNFO Shared Memory** → `None` (no error —
+temp/fan show as `--`). CPU/RAM load always come from `sysinfo`.
 
-## Fonte 1 — sidecar LibreHardwareMonitor + PawnIO (padrão)
+macOS and Linux **do not use** any of this: they have native sources with no
+driver for us to distribute (hwmon on Linux, SMC on macOS).
 
-Um **sidecar** `kalkan-sensord.exe` (projeto .NET em `sidecar/kalkan-sensord`,
-publicado self-contained — não exige .NET instalado) carrega o
-**LibreHardwareMonitor** (MPL-2.0) e emite leituras como JSON por linha no
-stdout, a cada 1 s:
+## Source 1 — LibreHardwareMonitor sidecar + PawnIO (default)
+
+A `kalkan-sensord.exe` **sidecar** (.NET project in `sidecar/kalkan-sensord`,
+published self-contained — no .NET install required) loads
+**LibreHardwareMonitor** (MPL-2.0) and emits readings as one JSON line per
+second on stdout:
 
 ```
 {"cpu_temp_c":42.0,"fan_rpm":2400}
 ```
 
-O `kalkan-core` spawna o sidecar (sem janela de console), lê essa saída numa
-thread e combina com o `sysinfo`. Fica **lado a lado** com o executável (ou
-aponte via `KALKAN_SENSORD`).
+`kalkan-core` spawns the sidecar (with no console window), reads that output on
+a thread and combines it with `sysinfo`. It sits **side by side** with the
+executable (or point to it via `KALKAN_SENSORD`).
 
-O LibreHardwareMonitor (0.9.5+) acessa o hardware pelo driver **PawnIO**: open
-source, assinado pela Microsoft e **compatível com a Integridade de Memória
-(HVCI)**. O **instalador** (`installer/`) instala o PawnIO 2.2.0 em modo
-silencioso (`PawnIO_setup.exe -install -silent`) quando ele falta ou é < 2.0 —
-mesma regra do LibreHardwareMonitor — e **não** o remove na desinstalação (outros
-programas usam o mesmo driver). Validado num Ryzen 7 9800X3D + Nuvoton NCT6799D
-com HVCI ligado: Tctl/Tdie e "Fan #2" (= CPUFANIN0).
+LibreHardwareMonitor (0.9.5+) accesses the hardware through the **PawnIO**
+driver: open source, signed by Microsoft and **compatible with Memory Integrity
+(HVCI)**. The **installer** (`windows/installer/`) installs PawnIO 2.2.0 silently
+(`PawnIO_setup.exe -install -silent`) when it is missing or < 2.0 — the same rule
+as LibreHardwareMonitor — and does **not** remove it on uninstall (other programs
+use the same driver). Validated on a Ryzen 7 9800X3D + Nuvoton NCT6799D with HVCI
+on: Tctl/Tdie and "Fan #2" (= CPUFANIN0).
 
-Sem o PawnIO, o sidecar roda mas MSR/Super-I/O voltam zerados e temp/fan ficam
-`None`; após 10 s sem dados, o `WindowsSource` tenta a Fonte 2.
+Without PawnIO, the sidecar runs but MSR/Super-I/O come back zeroed and
+temp/fan are `None`; after 10 s with no data, `WindowsSource` tries Source 2.
 
-Diagnóstico: `kalkan-sensord.exe --dump` (elevado) lista todo o hardware e
-sensores que o LibreHardwareMonitor enxerga. Temperatura/clock `0`/`null` com CPU
-Load funcionando = driver não ativo.
+Diagnostics: `kalkan-sensord.exe --dump` (elevated) lists all the hardware and
+sensors LibreHardwareMonitor sees. Temperature/clock `0`/`null` with CPU Load
+working = driver not active.
 
-## Fonte 2 — o motor HWiNFO do app original (`config.dat`)
+## Source 2 — the original app's HWiNFO engine (`config.dat`)
 
-Fallback para quando o app original da Kalkan está instalado. Também **funciona
-com HVCI** (o driver do HWiNFO é compatível). O `kalkan-core` carrega a DLL e
-chama as funções **por ordinal**, como o `RunHwinfo` (`FUN_140002d80`) do `.exe`:
+Fallback for when the original Kalkan app is installed. It also **works with
+HVCI** (HWiNFO's driver is compatible). `kalkan-core` loads the DLL and calls the
+functions **by ordinal**, like the `.exe`'s `RunHwinfo` (`FUN_140002d80`):
 
-| ordinal | função | uso |
+| ordinal | function | use |
 |---|---|---|
-| 590 | `Init(0x40) -> int` | 0 = ok; ≠ 0 sem admin |
+| 590 | `Init(0x40) -> int` | 0 = ok; ≠ 0 no admin |
 | 883 | `NumSensors() -> int` | |
-| 726 | `Update()` | antes de cada leitura |
+| 726 | `Update()` | before each reading |
 | 749 | `SelectSensor(int)` | |
 | 106 | `GetReading(type, sensor, index, *raw) -> bool` | type 1 = temp, 3 = fan; index 0..0x200 |
 
-Struct de saída (0x1D0 bytes): `+0x00` u8 válido, `+0x08` f64 valor, `+0x3C`
-char[256] nome do sensor, `+0x148` char[128] rótulo, `+0x1C8` u32 tipo.
+Output struct (0x1D0 bytes): `+0x00` u8 valid, `+0x08` f64 value, `+0x3C`
+char[256] sensor name, `+0x148` char[128] label, `+0x1C8` u32 type.
 
-Escolha (igual a `FUN_1400023b0`): temperatura = rótulo com `package`/`average`;
-fan = rótulo com `cpu` (sem diferenciar maiúsculas); senão a primeira plausível.
-Varre tudo uma vez e depois relê só as duas leituras escolhidas a cada 1 s.
+Selection (same as `FUN_1400023b0`): temperature = label with `package`/`average`;
+fan = label with `cpu` (case-insensitive); otherwise the first plausible one.
+It scans everything once and then re-reads only the two chosen readings every 1 s.
 
-A DLL é procurada em: `KALKAN_HWINFO_DLL`; `config.dat`/`HWiNFO64.dll` ao lado do
-executável; `C:\Program Files (x86)\Kalkan PC SmartMonitor DZ V1.3\config.dat`.
-É binário proprietário do HWiNFO: **não** é versionado nem redistribuído aqui —
-usamos a cópia da instalação do app original. Ela grava um `-debug.log` no
-diretório atual (ignorado pelo git).
+The DLL is searched for in: `KALKAN_HWINFO_DLL`; `config.dat`/`HWiNFO64.dll` next
+to the executable; `C:\Program Files (x86)\Kalkan PC SmartMonitor DZ V1.3\config.dat`.
+It is a proprietary HWiNFO binary: it is **not** versioned or redistributed here —
+we use the copy from the original app's installation. It writes a `-debug.log` in
+the current directory (ignored by git).
 
-Diagnóstico: `kalkan hwinfo` (elevado) lista toda leitura de temp/fan e a escolha.
+Diagnostics: `kalkan hwinfo` (elevated) lists every temp/fan reading and the pick.
 
-## Fonte 3 — HWiNFO Shared Memory
+## Source 3 — HWiNFO Shared Memory
 
-Se o HWiNFO estiver aberto com "Shared Memory Support" ligado, lemos
-`Global\HWiNFO_SENS_SM2` (não exige admin).
+If HWiNFO is open with "Shared Memory Support" on, we read
+`Global\HWiNFO_SENS_SM2` (does not require admin).
 
-## Desligar a Integridade de Memória?
+## Turn off Memory Integrity?
 
-**Não é necessário** (as Fontes 1 e 2 funcionam com HVCI) e **não é
-recomendado** — é um downgrade de segurança.
+**Not necessary** (Sources 1 and 2 work with HVCI) and **not recommended** — it
+is a security downgrade.

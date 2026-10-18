@@ -1,8 +1,8 @@
 name: Release
 
-# Tag `v*` (ex.: v0.1.0) → gera o instalador e publica uma GitHub Release.
-# Rodar manualmente (workflow_dispatch) só gera o instalador como artefato.
-# Gatilho por tag desativado por enquanto; só roda manualmente.
+# Tag `v*` (e.g. v0.1.0): builds the installer and publishes a GitHub Release.
+# A manual run (workflow_dispatch) only produces the installer as an artifact.
+# The tag trigger is disabled for now; manual runs only.
 on:
   # push:
   #   tags: ['v*']
@@ -29,11 +29,11 @@ jobs:
             choco install innosetup -y --no-progress
           }
 
-      - name: Gera o instalador
+      - name: Build the installer
         shell: pwsh
         run: |
           $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.0.$env:GITHUB_RUN_NUMBER" }
-          ./installer/build.ps1 -Version $v
+          ./windows/installer/build.ps1 -Version $v
 
       - uses: actions/upload-artifact@v4
         with:

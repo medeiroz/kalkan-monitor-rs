@@ -1,123 +1,127 @@
 # Kalkan Monitor RS
 
+**English** | [Português (Brasil)](README-PT.md)
+
 > [!IMPORTANT]
-> **Este repositório é da versão 1.3 do Kalkan PC SmartMonitor**, usada nos
-> produtos comprados **a partir de janeiro/2026**. A versão 1.2 (produtos mais
-> antigos) usa um protocolo diferente e **não é compatível** com este código —
-> e vice-versa. Fork adaptado do repositório 1.2.
+> **This repository targets version 1.3 of the Kalkan PC SmartMonitor**, used in
+> products bought **from January 2026 onward**. Version 1.2 (older products)
+> uses a different protocol and is **not compatible** with this code — and vice
+> versa. It is a fork adapted from the 1.2 repository.
 
-Reimplementação multiplataforma (Windows / macOS / Linux), em Rust, do driver +
-interface do watercooler **Kalkan PC SmartMonitor 1.3**. Projeto novo — não é o
-`.exe` original traduzido; é uma reconstrução baseada em engenharia reversa do
-comportamento dele (ver [`docs/protocol.md`](docs/protocol.md)), com uma UI
-moderna nova por cima.
+Cross-platform (Windows / macOS / Linux) Rust reimplementation of the driver +
+interface for the **Kalkan PC SmartMonitor 1.3** watercooler. A new project — it
+is not the original `.exe` translated; it is a reconstruction based on reverse
+engineering its behavior (see [`docs/protocol.md`](docs/protocol.md)), with a
+new modern UI on top.
 
-## Por que existe
+## Why it exists
 
-O software original é Windows-only: usa HWiNFO para sensores e um app Qt/QML
-para a UI (além de, na versão instalada, desligar o UAC — removido à parte).
-Aqui a lógica útil — ler sensores e falar com o display do cooler por serial —
-vira um núcleo portátil, e a interface é refeita do zero.
+The original software is Windows-only: it uses HWiNFO for sensors and a Qt/QML
+app for the UI (and, in the installed version, it also disables UAC — removed
+separately). Here the useful logic — reading sensors and talking to the cooler's
+display over serial — becomes a portable core, and the interface is rebuilt from
+scratch.
 
-## O que é diferente na 1.3
+## What is different in 1.3
 
-Comparada à 1.2, a 1.3 é **mais simples** (detalhes em `docs/protocol.md`):
+Compared to 1.2, the 1.3 is **simpler** (details in `docs/protocol.md`):
 
-- transporte **só serial** (USB-serial), sem o caminho HID da 1.2;
-- dispositivo achado por **VID/PID fixos** (`1F3A:0008` ou `1A86:484A`), aberto
-  a **1 Mbps, 8N1, sem controle de fluxo**;
-- **sem handshake / sem seed**;
-- frame de **5 bytes** `74 00 temp fanHi fanLo`, embaralhado com um **XOR `0x02`**
-  do byte 2 em diante (sem `cpu_load`, sem índice de frame).
+- **serial-only** transport (USB-serial), without the 1.2's HID path;
+- device found by **fixed VID/PID** (`1F3A:0008` or `1A86:484A`), opened at
+  **1 Mbps, 8N1, no flow control**;
+- **no handshake / no seed**;
+- **5-byte** frame `74 00 temp fanHi fanLo`, scrambled with an **XOR `0x02`**
+  from byte 2 onward (no `cpu_load`, no frame index).
 
-## Estrutura
+## Structure
 
 ```
 crates/
-  kalkan-core/   # núcleo: transporte serial, sensores, protocolo 1.3 completo
-  kalkan-cli/    # utilitário `kalkan` (list, sensors, frame, send, hwinfo, hid)
-  kalkan-ui/     # dashboard moderno (Slint, tema claro) → bin `kalkan-monitor`
+  kalkan-core/   # core: serial transport, sensors, full 1.3 protocol
+  kalkan-cli/    # `kalkan` utility (list, sensors, frame, send, hwinfo, hid)
+  kalkan-ui/     # modern dashboard (Slint, light theme) → `kalkan-monitor` bin
 sidecar/
-  kalkan-sensord/ # sensores no Windows via LibreHardwareMonitor (.NET)
-installer/        # instalador Windows (Inno Setup) + build.ps1
+  kalkan-sensord/ # Windows sensors via LibreHardwareMonitor (.NET)
+windows/
+  installer/    # Windows installer (Inno Setup) + build.ps1
 docs/
-  protocol.md    # achados da engenharia reversa (protocolo 1.3 reconstruído)
+  protocol.md    # reverse-engineering findings (reconstructed 1.3 protocol)
 ```
 
-## Instalar (Windows)
+## Install (Windows)
 
-Baixe o `KalkanMonitor-Setup-<versão>.exe` em
-[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases). Ele instala o
-dashboard, o sidecar de sensores e o driver **PawnIO** (necessário para ler
-temperatura/fan, inclusive com a Integridade de Memória ligada). Nada mais a
-instalar à parte.
+Download `KalkanMonitor-Setup-<version>.exe` from
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases). It installs the
+dashboard, the sensor sidecar and the **PawnIO** driver (needed to read
+temperature/fan, including with Memory Integrity turned on). Nothing else to
+install separately.
 
-Para gerar o instalador localmente: `./installer/build.ps1 -Version 0.1.0`
-(precisa de Rust, .NET 8 SDK e Inno Setup 6).
+To build the installer locally: `./windows/installer/build.ps1 -Version 0.1.0`
+(needs Rust, .NET 8 SDK and Inno Setup 6).
 
-### Publicar uma versão
+### Publishing a release
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-O GitHub Actions (`.github/workflows/release.yml`) gera o instalador e cria a
-Release com ele anexado. Todo push/PR roda os testes em Windows, Linux e macOS
-(`ci.yml`).
+GitHub Actions (`.github/workflows/release.yml`) builds the installer and
+creates the Release with it attached. Every push/PR runs the tests on Windows,
+Linux and macOS (`ci.yml`).
 
-## Compilar e rodar
+## Build and run
 
 ```bash
 cargo build
-cargo run -p kalkan-ui              # abre o dashboard
-./target/debug/kalkan list          # lista portas seriais — acha o cooler (★)
-./target/debug/kalkan sensors       # leitura de sensores atual
-./target/debug/kalkan frame         # monta+embaralha um frame e mostra o hex
-./target/debug/kalkan send 42 1234 15  # envia temp/fan fixos ao display por 15 s (teste de hardware)
-./target/debug/kalkan hwinfo        # (admin) leituras do motor HWiNFO do app original
-cargo test                          # testes do protocolo + sensores (vetores de regressão)
+cargo run -p kalkan-ui              # opens the dashboard
+./target/debug/kalkan list          # lists serial ports — finds the cooler (★)
+./target/debug/kalkan sensors       # current sensor reading
+./target/debug/kalkan frame         # builds+scrambles a frame and shows the hex
+./target/debug/kalkan send 42 1234 15  # sends fixed temp/fan to the display for 15 s (hardware test)
+./target/debug/kalkan hwinfo        # (admin) readings from the original app's HWiNFO engine
+cargo test                          # protocol + sensor tests (regression vectors)
 ```
 
-Sensores no Windows (em dev): compile o sidecar .NET e tenha o PawnIO instalado
-(o instalador cuida disso; o LibreHardwareMonitor também o instala). Se o app
-original da Kalkan estiver instalado, o `config.dat` dele serve de fallback.
-Ver [`docs/sensors-windows.md`](docs/sensors-windows.md):
+Sensors on Windows (in dev): build the .NET sidecar and have PawnIO installed
+(the installer takes care of that; LibreHardwareMonitor also installs it). If the
+original Kalkan app is installed, its `config.dat` serves as a fallback.
+See [`docs/sensors-windows.md`](docs/sensors-windows.md):
 
 ```bash
 dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
-# em dev, o app também acha o sidecar em sidecar/kalkan-sensord/bin/.../publish/
+# in dev, the app also finds the sidecar in sidecar/kalkan-sensord/bin/.../publish/
 ```
 
-## Estado
+## Status
 
-- [x] Núcleo compila e roda em Windows, macOS e Linux (mesmas crates).
-- [x] Descoberta por porta serial + match de VID/PID (`1F3A:0008`, `1A86:484A`).
-- [x] Transporte serial com os parâmetros exatos do cooler (1 Mbps / 8N1).
-- [x] **Protocolo completo** 1.3 reconstruído da estática: frame de 5 bytes +
-      XOR `0x02` (porte verificado contra o assembly, com vetor de regressão).
-- [x] UI moderna (Slint, tema claro): cards de CPU / temperatura / fan, chip de
-      status e dispositivo. Cadência fixa de **1 s** (igual ao original; sem
-      seletor de frequência) e descoberta por serial.
-- [x] **Backend de sensores no Windows**: temperatura e fan, em ordem, do
-      **sidecar LibreHardwareMonitor + PawnIO** (`kalkan-sensord`; funciona com
-      HVCI), do **motor HWiNFO do app original** (`config.dat`, se instalado) e do
-      **HWiNFO Shared Memory**. CPU/RAM load vêm do `sysinfo`. A UI se auto-eleva
-      (UAC), como o original. Ver [`docs/sensors-windows.md`](docs/sensors-windows.md).
-- [x] **Instalador** (Inno Setup, PawnIO embutido) e **CI/CD** no GitHub Actions.
-- [ ] Backends de sensor para Linux (lm-sensors/hwmon) e macOS (SMC) — temp/fan
-      `--` nessas plataformas por ora (CPU load é real).
-- [x] **Envio ponta a ponta validado no hardware 1.3**: cooler em `1A86:484A`
-      (COM3), `kalkan send 42 1234` mostrou 42 °C / 1234 RPM no display. O
-      display não responde nada pela serial. Cadência sempre 1 s.
-- [x] **Dashboard envia ao display** com sensores reais: abre a porta (e reabre
-      se cair) e manda temp/fan a cada 1 s. Validado num Ryzen 7 9800X3D com HVCI
-      ligado (CPU Die average / CPUFANIN0).
+- [x] Core builds and runs on Windows, macOS and Linux (same crates).
+- [x] Serial port discovery + VID/PID match (`1F3A:0008`, `1A86:484A`).
+- [x] Serial transport with the cooler's exact parameters (1 Mbps / 8N1).
+- [x] **Complete 1.3 protocol** reconstructed from static analysis: 5-byte frame +
+      XOR `0x02` (port verified against the assembly, with a regression vector).
+- [x] Modern UI (Slint, light theme): CPU / temperature / fan cards, status chip
+      and device. Fixed **1 s** cadence (same as the original; no frequency
+      selector) and serial discovery.
+- [x] **Windows sensor backend**: temperature and fan, in order, from the
+      **LibreHardwareMonitor sidecar + PawnIO** (`kalkan-sensord`; works with
+      HVCI), the **original app's HWiNFO engine** (`config.dat`, if installed) and
+      **HWiNFO Shared Memory**. CPU/RAM load come from `sysinfo`. The UI
+      self-elevates (UAC), like the original. See [`docs/sensors-windows.md`](docs/sensors-windows.md).
+- [x] **Installer** (Inno Setup, PawnIO bundled) and **CI/CD** on GitHub Actions.
+- [ ] Sensor backends for Linux (lm-sensors/hwmon) and macOS (SMC) — temp/fan
+      show `--` on those platforms for now (CPU load is real).
+- [x] **End-to-end sending validated on 1.3 hardware**: cooler at `1A86:484A`
+      (COM3), `kalkan send 42 1234` showed 42 °C / 1234 RPM on the display. The
+      display sends nothing back over serial. Cadence always 1 s.
+- [x] **Dashboard sends to the display** with real sensors: opens the port (and
+      reopens it if it drops) and sends temp/fan every 1 s. Validated on a Ryzen 7
+      9800X3D with HVCI on (CPU Die average / CPUFANIN0).
 
-## Testando o display
+## Testing the display
 
 ```bash
-./target/debug/kalkan list             # a porta do cooler aparece com ★
-./target/debug/kalkan send 42 1234 30  # o display deve mostrar 42 °C e 1234 RPM
+./target/debug/kalkan list             # the cooler's port shows up with ★
+./target/debug/kalkan send 42 1234 30  # the display should show 42 °C and 1234 RPM
 ```
 
-Se nada mudar, feche o app original do Kalkan (ele pode estar segurando a porta).
+If nothing changes, close the original Kalkan app (it may be holding the port).

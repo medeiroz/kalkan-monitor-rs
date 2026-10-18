@@ -1,24 +1,24 @@
-//! Descoberta de dispositivos — portas seriais (1.3) e HID (legado/diagnóstico).
+//! Device discovery — serial ports (1.3) and HID (legacy/diagnostics).
 //!
-//! A 1.3 fala por **porta serial USB**. O app original acha o cooler
-//! enumerando `QSerialPortInfo::availablePorts()` e casando por VID/PID
-//! (`FUN_1400083d0`), tentando dois pares conhecidos (ver [`DISPLAY_IDS`]).
+//! The 1.3 talks over a **USB serial port**. The original app finds the cooler
+//! by enumerating `QSerialPortInfo::availablePorts()` and matching by VID/PID
+//! (`FUN_1400083d0`), trying two known pairs (see [`DISPLAY_IDS`]).
 
 use anyhow::Result;
 use serialport::SerialPortType;
 
-/// Pares (VID, PID) do display 1.3, na ordem em que o original os tenta.
+/// (VID, PID) pairs of the 1.3 display, in the order the original tries them.
 ///
-/// De `Sysctl::connect` (`FUN_140008300`): primeiro `1F3A:0008`, senão
-/// `1A86:484A` (família CH340 — ponte USB-serial comum).
+/// From `Sysctl::connect` (`FUN_140008300`): first `1F3A:0008`, otherwise
+/// `1A86:484A` (CH340 family — a common USB-serial bridge).
 pub const DISPLAY_IDS: &[(u16, u16)] = &[(0x1F3A, 0x0008), (0x1A86, 0x484A)];
 
-/// Uma porta serial vista na enumeração do sistema (multiplataforma).
+/// A serial port seen in the system enumeration (cross-platform).
 #[derive(Debug, Clone)]
 pub struct SerialDeviceInfo {
-    /// Nome da porta (ex.: `COM5` no Windows, `/dev/ttyUSB0` no Linux).
+    /// Port name (e.g. `COM5` on Windows, `/dev/ttyUSB0` on Linux).
     pub port_name: String,
-    /// VID/PID quando a porta é USB (serialport só expõe para portas USB).
+    /// VID/PID when the port is USB (serialport only exposes them for USB ports).
     pub vendor_id: Option<u16>,
     pub product_id: Option<u16>,
     pub manufacturer: Option<String>,
@@ -27,7 +27,7 @@ pub struct SerialDeviceInfo {
 }
 
 impl SerialDeviceInfo {
-    /// `true` se o VID/PID casa com algum par de [`DISPLAY_IDS`].
+    /// `true` if the VID/PID matches any pair in [`DISPLAY_IDS`].
     pub fn is_display(&self) -> bool {
         match (self.vendor_id, self.product_id) {
             (Some(v), Some(p)) => DISPLAY_IDS.contains(&(v, p)),
@@ -36,7 +36,7 @@ impl SerialDeviceInfo {
     }
 }
 
-/// Lista todas as portas seriais do sistema, com VID/PID quando USB.
+/// Lists all serial ports on the system, with VID/PID when USB.
 pub fn available_serial_ports() -> Result<Vec<SerialDeviceInfo>> {
     let ports = serialport::available_ports()?;
     Ok(ports
@@ -64,15 +64,15 @@ pub fn available_serial_ports() -> Result<Vec<SerialDeviceInfo>> {
         .collect())
 }
 
-/// `true` se a porta de nome `port_name` casa com [`DISPLAY_IDS`].
+/// `true` if the port described by `info` matches [`DISPLAY_IDS`].
 pub fn is_display_port(info: &SerialDeviceInfo) -> bool {
     info.is_display()
 }
 
-/// Acha o nome da primeira porta serial cujo VID/PID casa com [`DISPLAY_IDS`].
+/// Finds the name of the first serial port whose VID/PID matches [`DISPLAY_IDS`].
 ///
-/// Respeita a ordem de [`DISPLAY_IDS`] (igual ao original: tenta `1F3A:0008`
-/// antes de `1A86:484A`).
+/// Respects the order of [`DISPLAY_IDS`] (same as the original: tries `1F3A:0008`
+/// before `1A86:484A`).
 pub fn find_display_port() -> Result<Option<String>> {
     let ports = available_serial_ports()?;
     for &(vid, pid) in DISPLAY_IDS {
@@ -86,9 +86,9 @@ pub fn find_display_port() -> Result<Option<String>> {
     Ok(None)
 }
 
-// -- HID (legado 1.2 / diagnóstico) ------------------------------------------
+// -- HID (legacy 1.2 / diagnostics) ------------------------------------------
 
-/// Um dispositivo HID visto na enumeração do sistema (multiplataforma).
+/// An HID device seen in the system enumeration (cross-platform).
 #[derive(Debug, Clone)]
 pub struct HidDeviceInfo {
     pub vendor_id: u16,
@@ -99,10 +99,10 @@ pub struct HidDeviceInfo {
     pub path: String,
 }
 
-/// Lista todos os dispositivos HID do sistema.
+/// Lists all HID devices on the system.
 ///
-/// A 1.3 não usa HID (o transporte é serial); fica como ferramenta de
-/// diagnóstico, útil ao inspecionar hardware desconhecido.
+/// The 1.3 does not use HID (the transport is serial); this stays as a
+/// diagnostic tool, useful when inspecting unknown hardware.
 pub fn enumerate() -> Result<Vec<HidDeviceInfo>> {
     let api = hidapi::HidApi::new()?;
     Ok(api
@@ -118,7 +118,7 @@ pub fn enumerate() -> Result<Vec<HidDeviceInfo>> {
         .collect())
 }
 
-/// Heurística para destacar candidatos a "display de cooler" numa lista HID.
+/// Heuristic to highlight "cooler display" candidates in an HID list.
 pub fn looks_like_display(info: &HidDeviceInfo) -> bool {
     let hay = format!(
         "{} {}",

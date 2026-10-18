@@ -1,27 +1,27 @@
 <#
-  Gera o instalador do Kalkan Monitor: target/installer/KalkanMonitor-Setup-<versão>.exe
+  Builds the Kalkan Monitor installer: target/installer/KalkanMonitor-Setup-<version>.exe
 
-  Uso (PowerShell 7):  ./installer/build.ps1 [-Version 0.1.0]
+  Usage (PowerShell 7):  ./windows/installer/build.ps1 [-Version 0.1.0]
 
-  Requer Rust, .NET 8 SDK e Inno Setup 6 (winget install JRSoftware.InnoSetup).
-  É o mesmo script que o GitHub Actions roda (.github/workflows/release.yml).
+  Requires Rust, .NET 8 SDK and Inno Setup 6 (winget install JRSoftware.InnoSetup).
+  This is the same script GitHub Actions runs (.github/workflows/release.yml).
 #>
 param([string]$Version = "0.0.0")
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSScriptRoot
+$root = Split-Path (Split-Path $PSScriptRoot)
 Set-Location $root
 
-# PawnIO — driver de kernel compatível com HVCI usado pelo LibreHardwareMonitor.
-# Versão fixa e SHA-256 conferido: o instalador nunca embute um binário diferente.
+# PawnIO: HVCI-compatible kernel driver used by LibreHardwareMonitor.
+# Pinned version and verified SHA-256: the installer never bundles a different binary.
 $PawnIOVersion = '2.2.0'
 $PawnIOSha256 = '1f519a22e47187f70a1379a48ca604981c4fcf694f4e65b734aaa74a9fba3032'
 
 cargo build --release -p kalkan-ui
-if ($LASTEXITCODE) { throw "cargo build falhou" }
+if ($LASTEXITCODE) { throw "cargo build failed" }
 
 dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
-if ($LASTEXITCODE) { throw "dotnet publish falhou" }
+if ($LASTEXITCODE) { throw "dotnet publish failed" }
 
 $out = Join-Path $root 'target/installer'
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -30,7 +30,7 @@ if (-not (Test-Path $pawn) -or (Get-FileHash $pawn -Algorithm SHA256).Hash -ne $
     Invoke-WebRequest "https://github.com/namazso/PawnIO.Setup/releases/download/$PawnIOVersion/PawnIO_setup.exe" -OutFile $pawn
 }
 $hash = (Get-FileHash $pawn -Algorithm SHA256).Hash
-if ($hash -ne $PawnIOSha256) { throw "SHA-256 do PawnIO não confere: $hash" }
+if ($hash -ne $PawnIOSha256) { throw "PawnIO SHA-256 mismatch: $hash" }
 
 $iscc = @(
     (Get-Command iscc -ErrorAction SilentlyContinue)?.Source
@@ -38,7 +38,7 @@ $iscc = @(
     "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-if (-not $iscc) { throw "Inno Setup 6 não encontrado (winget install JRSoftware.InnoSetup)" }
+if (-not $iscc) { throw "Inno Setup 6 not found (winget install JRSoftware.InnoSetup)" }
 
-& $iscc "/DAppVersion=$Version" "/DPawnIOSetup=$pawn" installer/kalkan-monitor.iss
-if ($LASTEXITCODE) { throw "ISCC falhou" }
+& $iscc "/DAppVersion=$Version" "/DPawnIOSetup=$pawn" windows/installer/kalkan-monitor.iss
+if ($LASTEXITCODE) { throw "ISCC failed" }
