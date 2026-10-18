@@ -1,0 +1,17 @@
+[package]
+name = "kalkan-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kalkan-monitor"
+path = "src/main.rs"
+
+[dependencies]
+kalkan-core = { path = "../kalkan-core" }
+slint = "1.8.0"
+anyhow.workspace = true
+
+[build-dependencies]
+slint-build = "1.8.0"

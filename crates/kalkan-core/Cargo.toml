@@ -1,0 +1,11 @@
+[package]
+name = "kalkan-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hidapi.workspace = true
+serialport.workspace = true
+sysinfo.workspace = true
+anyhow.workspace = true

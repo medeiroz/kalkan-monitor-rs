@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/kalkan-core", "crates/kalkan-cli", "crates/kalkan-ui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Kalkan Monitor RS contributors"]
+
+[workspace.dependencies]
+hidapi = "2.6.3"
+serialport = "4.7.0"
+sysinfo = "0.33.1"
+anyhow = "1.0.95"

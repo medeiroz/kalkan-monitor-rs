@@ -1,0 +1,693 @@
+// Kalkan Monitor — shell com sidebar + 3 telas (tema claro).
+// Redesign a partir da crítica de UI/UX. UI nova, diferente do software original.
+
+// ---------------------------------------------------------------- tokens
+global Palette {
+    out property <color> bg:          #eef1f7;
+    out property <color> surface:     #ffffff;
+    out property <color> surface-2:   #f6f8fc;
+    out property <color> line:        #e4e8f0;
+    out property <color> line-strong: #d2d9e6;
+
+    out property <color> ink:         #1b2330;
+    out property <color> muted:       #5f6b80;   // AA em branco
+    out property <color> faint:       #8a93a6;
+
+    out property <color> accent:      #2f6df6;
+    out property <color> accent-weak: #e7eefe;
+    out property <color> warm:        #ff7a59;
+    out property <color> teal:        #16b8a6;
+
+    out property <color> ok:          #16a34a;
+    out property <color> ok-weak:     #e8f9ee;
+    out property <color> warn:        #d97706;
+    out property <color> warn-weak:   #fdf3e2;
+    out property <color> danger:      #dc2626;
+    out property <color> danger-weak: #fdecec;
+    out property <color> off:         #cbd3e0;
+
+    // telinha do cooler (representa o hardware; exceção ao tema claro)
+    out property <color> lcd-bg:      #0e1726;
+    out property <color> lcd-ink:     #eaf2ff;
+    out property <color> lcd-dim:     #5b6b85;
+}
+
+enum ConnState { disconnected, connecting, connected, error }
+
+// ---------------------------------------------------------------- nav item
+component NavItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    height: 42px;
+    border-radius: 10px;
+    background: selected ? Palette.accent-weak : touch.has-hover ? Palette.surface-2 : transparent;
+    animate background { duration: 120ms; }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        spacing: 10px;
+        alignment: start;
+        // marca lateral de seleção (wrapper centraliza verticalmente)
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 3px;
+                height: 18px;
+                border-radius: 2px;
+                background: root.selected ? Palette.accent : transparent;
+            }
+        }
+        Text {
+            text: root.text;
+            vertical-alignment: center;
+            color: root.selected ? Palette.accent : Palette.ink;
+            font-size: 14px;
+            font-weight: root.selected ? 700 : 500;
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// ---------------------------------------------------------------- status pill
+component StatusPill inherits Rectangle {
+    in property <ConnState> state;
+    property <string> label:
+        state == ConnState.connected ? "conectado"
+        : state == ConnState.connecting ? "conectando…"
+        : state == ConnState.error ? "erro de conexão"
+        : "desconectado";
+    property <color> tone:
+        state == ConnState.connected ? Palette.ok
+        : state == ConnState.connecting ? Palette.warn
+        : state == ConnState.error ? Palette.danger
+        : Palette.danger;
+    property <color> tone-weak:
+        state == ConnState.connected ? Palette.ok-weak
+        : state == ConnState.connecting ? Palette.warn-weak
+        : Palette.danger-weak;
+
+    height: 34px;
+    border-radius: 17px;
+    background: tone-weak;
+    border-width: 1px;
+    border-color: tone.with-alpha(0.35);
+
+    HorizontalLayout {
+        spacing: 8px;
+        padding-left: 13px;
+        padding-right: 15px;
+        alignment: start;
+        VerticalLayout {
+            alignment: center;
+            // conectado = ponto cheio; demais = anel vazado (forma + cor)
+            Rectangle {
+                width: 11px; height: 11px; border-radius: 6px;
+                background: root.state == ConnState.connected ? root.tone : transparent;
+                border-width: 2px;
+                border-color: root.tone;
+                opacity: root.state == ConnState.connecting ? 0.5 : 1.0;
+                animate opacity { duration: 1000ms; iteration-count: -1; direction: alternate; }
+            }
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            color: Palette.ink;
+            font-size: 13px;
+            font-weight: 700;
+        }
+    }
+}
+
+// ---------------------------------------------------------------- gauge bar
+component GaugeBar inherits Rectangle {
+    in property <float> fraction;   // 0..1
+    in property <int> level;        // 0 normal / 1 warn / 2 crit
+    in property <color> tint;
+    height: 10px;
+    background: Palette.line;
+    border-radius: 5px;
+    clip: true;
+    Rectangle {
+        x: 0;
+        width: parent.width * clamp(root.fraction, 0.0, 1.0);
+        height: parent.height;
+        border-radius: 5px;
+        background: root.level == 2 ? Palette.danger
+                  : root.level == 1 ? Palette.warn
+                  : root.tint;
+        animate width { duration: 400ms; easing: ease-out; }
+    }
+}
+
+// ---------------------------------------------------------------- stat card
+component StatCard inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> unit;
+    in property <string> state-label;
+    in property <float> fraction;
+    in property <int> level;
+    in property <color> tint;
+
+    min-width: 230px;
+    background: Palette.surface;
+    border-radius: 18px;
+    border-width: 1px;
+    border-color: Palette.line;
+
+    VerticalLayout {
+        padding: 22px;
+        spacing: 10px;
+        alignment: start;
+        Text {
+            text: root.label;
+            color: Palette.muted;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 4px;
+            Text {
+                text: root.value;
+                color: Palette.ink;
+                font-size: 42px;
+                font-weight: 800;
+            }
+            Text {
+                text: root.unit;
+                color: Palette.muted;
+                font-size: 15px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+        GaugeBar { fraction: root.fraction; level: root.level; tint: root.tint; }
+        Text {
+            text: root.state-label;
+            color: root.level == 2 ? Palette.danger
+                 : root.level == 1 ? Palette.warn
+                 : Palette.faint;
+            font-size: 12px;
+            font-weight: 600;
+        }
+    }
+}
+
+// ---------------------------------------------------------------- LCD preview
+component DisplayPreview inherits Rectangle {
+    in property <string> temp;
+    in property <string> load;
+    in property <string> fan;
+    in property <int> frame-index;
+    in property <bool> sending;
+
+    background: Palette.lcd-bg;
+    border-radius: 14px;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 6px;
+        HorizontalLayout {
+            alignment: space-between;
+            Text { text: root.temp + "°"; color: Palette.lcd-ink; font-size: 34px; font-weight: 800; }
+            Text { text: root.load + "%"; color: Palette.lcd-ink; font-size: 34px; font-weight: 800; }
+        }
+        Rectangle { height: 2px; background: Palette.lcd-dim.with-alpha(0.4); }
+        HorizontalLayout {
+            alignment: center;
+            Text { text: root.fan + " RPM"; color: Palette.lcd-ink; font-size: 26px; font-weight: 700; }
+        }
+        Rectangle { vertical-stretch: 1; }
+        HorizontalLayout {
+            alignment: space-between;
+            Text { text: "frame #" + root.frame-index; color: Palette.lcd-dim; font-size: 12px; }
+            Text {
+                text: root.sending ? "● enviando" : "○ prévia offline";
+                color: root.sending ? Palette.teal : Palette.lcd-dim;
+                font-size: 12px;
+                font-weight: 700;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- select
+component Select inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    callback changed(int);
+
+    height: 44px;
+    border-radius: 10px;
+    background: touch.has-hover ? Palette.surface-2 : Palette.surface;
+    border-width: 1px;
+    border-color: Palette.line-strong;
+    animate background { duration: 120ms; }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 8px;
+        Text {
+            text: root.current-index >= 0 ? root.model[root.current-index] : "";
+            color: Palette.ink;
+            font-size: 14px;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        VerticalLayout {
+            alignment: center;
+            Path {
+                width: 12px;
+                height: 8px;
+                stroke: Palette.muted;
+                stroke-width: 1.6px;
+                commands: "M 0 0 L 6 5 L 12 0";
+            }
+        }
+    }
+
+    touch := TouchArea { clicked => { popup.show(); } }
+
+    popup := PopupWindow {
+        x: 0;
+        y: parent.height + 4px;
+        width: root.width;
+        Rectangle {
+            background: Palette.surface;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Palette.line-strong;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                for item[idx] in root.model : Rectangle {
+                    height: 36px;
+                    border-radius: 8px;
+                    background: opt.has-hover ? Palette.accent-weak
+                              : idx == root.current-index ? Palette.surface-2 : transparent;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        Text {
+                            text: item;
+                            color: idx == root.current-index ? Palette.accent : Palette.ink;
+                            font-size: 14px;
+                            font-weight: idx == root.current-index ? 700 : 500;
+                            vertical-alignment: center;
+                        }
+                    }
+                    opt := TouchArea {
+                        clicked => {
+                            root.current-index = idx;
+                            root.changed(idx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- slot editor
+component SlotEditor inherits VerticalLayout {
+    in property <string> label;
+    in property <[string]> sources;
+    in-out property <int> current-index;
+    in property <string> sends;        // "Envia: 52 (0–255)"
+    in property <bool> warn;
+    callback changed(int);
+
+    spacing: 8px;
+    Text {
+        text: root.label;
+        color: Palette.muted;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+    }
+    Select {
+        model: root.sources;
+        current-index <=> root.current-index;
+        changed(i) => { root.changed(i); }
+    }
+    Text {
+        text: root.sends;
+        color: root.warn ? Palette.warn : Palette.faint;
+        font-size: 12px;
+        font-weight: 600;
+    }
+}
+
+// ---------------------------------------------------------------- window
+export component AppWindow inherits Window {
+    title: "Kalkan Monitor";
+    preferred-width: 980px;
+    preferred-height: 600px;
+    min-width: 860px;
+    min-height: 520px;
+    background: Palette.bg;
+
+    // navegação
+    in-out property <int> active-page: 0;   // 0 painel, 1 display, 2 dispositivo
+
+    // ---- dashboard ----
+    in property <float> cpu-load: 0;
+    in property <string> cpu-load-str: "0";
+    in property <int> cpu-level: 0;
+    in property <string> cpu-state: "normal";
+
+    in property <string> cpu-temp-str: "--";
+    in property <float> temp-fraction: 0;
+    in property <int> temp-level: 0;
+    in property <string> temp-state: "sem leitura";
+
+    in property <string> fan-str: "--";
+    in property <float> fan-fraction: 0;
+    in property <int> fan-level: 0;
+    in property <string> fan-state: "sem sensor nesta plataforma";
+
+    // ---- conexão ----
+    in property <ConnState> conn-state: ConnState.disconnected;
+    in property <string> device-label: "nenhum dispositivo";
+    in property <string> device-detail: "";
+    in property <string> hid-error: "";
+
+    // ---- display config ----
+    in property <[string]> temp-sources;
+    in property <[string]> fan-sources;
+    in property <[string]> load-sources;
+    in-out property <int> temp-source-index: 0;
+    in-out property <int> fan-source-index: 0;
+    in-out property <int> load-source-index: 0;
+    in property <string> temp-sends: "";
+    in property <string> fan-sends: "";
+    in property <string> load-sends: "";
+    in property <bool> temp-sends-warn: false;
+    in property <bool> fan-sends-warn: false;
+    in property <bool> load-sends-warn: false;
+    callback slot-changed(int, int);   // (slot, index)
+
+    // ---- preview ----
+    in property <string> prev-temp: "--";
+    in property <string> prev-load: "--";
+    in property <string> prev-fan: "--";
+    in property <int> prev-frame-index: 0;
+    in property <bool> prev-sending: false;
+
+    // ---- preferências ----
+    in property <[string]> interval-options;
+    in-out property <int> interval-index: 1;
+    callback interval-changed(int);
+
+    HorizontalLayout {
+        // ============ sidebar ============
+        Rectangle {
+            width: 220px;
+            background: Palette.surface-2;
+            border-width: 1px;
+            border-color: Palette.line;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 6px;
+                VerticalLayout {
+                    padding-bottom: 14px;
+                    spacing: 2px;
+                    Text { text: "KALKAN"; color: Palette.ink; font-size: 18px; font-weight: 800; letter-spacing: 1px; }
+                    Text { text: "monitor"; color: Palette.faint; font-size: 13px; font-weight: 600; }
+                }
+                NavItem { text: "Painel";      selected: root.active-page == 0; clicked => { root.active-page = 0; } }
+                NavItem { text: "Display";     selected: root.active-page == 1; clicked => { root.active-page = 1; } }
+                NavItem { text: "Dispositivo"; selected: root.active-page == 2; clicked => { root.active-page = 2; } }
+
+                Rectangle { vertical-stretch: 1; }
+
+                Rectangle { height: 1px; background: Palette.line; }
+                Rectangle {
+                    height: 48px;
+                    HorizontalLayout {
+                        alignment: start;
+                        VerticalLayout {
+                            alignment: center;
+                            StatusPill { state: root.conn-state; }
+                        }
+                    }
+                    TouchArea { clicked => { root.active-page = 2; } }
+                }
+            }
+        }
+
+        // ============ conteúdo ============
+        Rectangle {
+            background: Palette.bg;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 20px;
+
+                // ---- header ----
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: root.active-page == 0 ? "Painel"
+                            : root.active-page == 1 ? "Display do cooler"
+                            : "Dispositivo";
+                        color: Palette.ink;
+                        font-size: 22px;
+                        font-weight: 800;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: "● ao vivo · a cada " + root.interval-options[root.interval-index];
+                        color: Palette.teal;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // ============ PAINEL ============
+                if root.active-page == 0 : VerticalLayout {
+                    spacing: 18px;
+                    HorizontalLayout {
+                        spacing: 18px;
+                        vertical-stretch: 0;
+                        StatCard {
+                            label: "USO DE CPU"; value: root.cpu-load-str; unit: "%";
+                            fraction: root.cpu-load / 100; level: root.cpu-level;
+                            state-label: root.cpu-state; tint: Palette.accent;
+                        }
+                        StatCard {
+                            label: "TEMPERATURA"; value: root.cpu-temp-str; unit: "°C";
+                            fraction: root.temp-fraction; level: root.temp-level;
+                            state-label: root.temp-state; tint: Palette.warm;
+                        }
+                        StatCard {
+                            label: "FAN / BOMBA"; value: root.fan-str; unit: "RPM";
+                            fraction: root.fan-fraction; level: root.fan-level;
+                            state-label: root.fan-state; tint: Palette.teal;
+                        }
+                    }
+                    // espelho do que vai ao display + atalho
+                    Rectangle {
+                        height: 64px;
+                        background: Palette.surface;
+                        border-radius: 16px;
+                        border-width: 1px;
+                        border-color: Palette.line;
+                        HorizontalLayout {
+                            padding-left: 20px; padding-right: 16px; spacing: 10px;
+                            alignment: space-between;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "No display:"; color: Palette.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
+                                Text {
+                                    text: root.prev-temp + "°C · " + root.prev-fan + " RPM · " + root.prev-load + "%";
+                                    color: Palette.ink; font-size: 13px; font-weight: 700; vertical-alignment: center;
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: edit-txt.preferred-width + 28px;
+                                    height: 34px;
+                                    border-radius: 10px;
+                                    background: edit-touch.has-hover ? Palette.accent : Palette.accent-weak;
+                                    animate background { duration: 120ms; }
+                                    edit-txt := Text {
+                                        text: "Configurar";
+                                        color: edit-touch.has-hover ? #ffffff : Palette.accent;
+                                        font-size: 13px; font-weight: 700;
+                                        horizontal-alignment: center; vertical-alignment: center;
+                                    }
+                                    edit-touch := TouchArea { clicked => { root.active-page = 1; } }
+                                }
+                            }
+                        }
+                    }
+                    // banner "sem hardware"
+                    if root.conn-state != ConnState.connected : Rectangle {
+                        height: 44px;
+                        background: Palette.warn-weak;
+                        border-radius: 12px;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            Text {
+                                text: "Rodando sem cooler — os sensores são do PC; nada está sendo enviado ao display.";
+                                color: Palette.warn; font-size: 13px; font-weight: 600; vertical-alignment: center;
+                            }
+                        }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // ============ DISPLAY ============
+                if root.active-page == 1 : HorizontalLayout {
+                    spacing: 20px;
+                    // esquerda: os 3 slots
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        background: Palette.surface;
+                        border-radius: 18px;
+                        border-width: 1px;
+                        border-color: Palette.line;
+                        VerticalLayout {
+                            padding: 24px;
+                            spacing: 18px;
+                            Text {
+                                text: "Escolha a fonte de cada campo que o cooler exibe. O display tem 3 campos fixos (temperatura, fan e %).";
+                                color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
+                            }
+                            SlotEditor {
+                                label: "CAMPO TEMPERATURA";
+                                sources: root.temp-sources;
+                                current-index <=> root.temp-source-index;
+                                sends: root.temp-sends; warn: root.temp-sends-warn;
+                                changed(i) => { root.slot-changed(0, i); }
+                            }
+                            Rectangle { height: 1px; background: Palette.line; }
+                            SlotEditor {
+                                label: "CAMPO FAN / BOMBA";
+                                sources: root.fan-sources;
+                                current-index <=> root.fan-source-index;
+                                sends: root.fan-sends; warn: root.fan-sends-warn;
+                                changed(i) => { root.slot-changed(1, i); }
+                            }
+                            Rectangle { height: 1px; background: Palette.line; }
+                            SlotEditor {
+                                label: "CAMPO USO (%)";
+                                sources: root.load-sources;
+                                current-index <=> root.load-source-index;
+                                sends: root.load-sends; warn: root.load-sends-warn;
+                                changed(i) => { root.slot-changed(2, i); }
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                        }
+                    }
+                    // direita: preview
+                    VerticalLayout {
+                        width: 320px;
+                        spacing: 10px;
+                        Text { text: "PRÉVIA DA TELINHA"; color: Palette.muted; font-size: 13px; font-weight: 700; letter-spacing: 0.4px; }
+                        DisplayPreview {
+                            height: 200px;
+                            temp: root.prev-temp; load: root.prev-load; fan: root.prev-fan;
+                            frame-index: root.prev-frame-index; sending: root.prev-sending;
+                        }
+                        Text {
+                            text: "Reflete o frame real (após arredondar e saturar nos limites de cada byte).";
+                            color: Palette.faint; font-size: 12px; font-weight: 500; wrap: word-wrap;
+                        }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+
+                // ============ DISPOSITIVO ============
+                if root.active-page == 2 : VerticalLayout {
+                    spacing: 18px;
+                    Rectangle {
+                        height: 128px;
+                        background: Palette.surface;
+                        border-radius: 18px;
+                        border-width: 1px;
+                        border-color: Palette.line;
+                        VerticalLayout {
+                            padding: 22px;
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                StatusPill { state: root.conn-state; }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            Text { text: root.device-label; color: Palette.ink; font-size: 16px; font-weight: 800; }
+                            Text { text: root.device-detail; color: Palette.muted; font-size: 13px; font-weight: 600; }
+                        }
+                    }
+                    if root.hid-error != "" : Rectangle {
+                        height: 52px;
+                        background: Palette.danger-weak;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: Palette.danger.with-alpha(0.3);
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            Text { text: root.hid-error; color: Palette.danger; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+                        }
+                    }
+                    Rectangle {
+                        height: 116px;
+                        background: Palette.surface;
+                        border-radius: 18px;
+                        border-width: 1px;
+                        border-color: Palette.line;
+                        VerticalLayout {
+                            padding: 22px;
+                            spacing: 14px;
+                            Text { text: "Preferências"; color: Palette.ink; font-size: 15px; font-weight: 800; }
+                            HorizontalLayout {
+                                spacing: 16px;
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 4px;
+                                    Text { text: "Frequência de atualização"; color: Palette.ink; font-size: 13px; font-weight: 700; }
+                                    Text {
+                                        text: "Com que frequência os sensores são lidos e enviados ao display.";
+                                        color: Palette.muted; font-size: 12px; font-weight: 500; wrap: word-wrap;
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    width: 150px;
+                                    Select {
+                                        model: root.interval-options;
+                                        current-index <=> root.interval-index;
+                                        changed(i) => { root.interval-changed(i); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        background: Palette.surface;
+                        border-radius: 18px;
+                        border-width: 1px;
+                        border-color: Palette.line;
+                        VerticalLayout {
+                            padding: 22px;
+                            spacing: 6px;
+                            Text { text: "Como conectar"; color: Palette.ink; font-size: 15px; font-weight: 800; }
+                            Text {
+                                text: "Plugue o watercooler na USB e rode `kalkan list`: a porta marcada com ★ é o cooler (VID/PID 1F3A:0008 ou 1A86:484A). O app abre a serial e passa a enviar os dados ao display.";
+                                color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
+                            }
+                        }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+        }
+    }
+}
