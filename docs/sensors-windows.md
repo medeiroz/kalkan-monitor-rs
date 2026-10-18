@@ -5,12 +5,40 @@ vêm de MSRs do processador e do Super-I/O/Embedded Controller da placa — ambo
 só acessíveis em **ring 0 (kernel)**. Rodar "como administrador" não basta
 (admin ainda é ring 3); é preciso um **driver de kernel**. Por isso todo monitor
 (HWiNFO, LibreHardwareMonitor, Core Temp…) carrega um driver, e por isso o app
-original da Kalkan pede elevação: ele embute o motor do HWiNFO (`config.dat` é um
-DLL que importa `HWiNFO64.dll`).
+original da Kalkan pede elevação: ele embute o motor do HWiNFO (`config.dat` **é**
+o `HWiNFO64.dll` do SDK, renomeado, com o driver embutido como recurso).
 
-## Como este projeto resolve (autossuficiente)
+## Fonte 1 — o motor HWiNFO do app original (`config.dat`)
 
-Caminho principal: um **sidecar** `kalkan-sensord.exe` (projeto .NET em
+Mesma fonte do original, e **funciona com a Integridade de Memória (HVCI)
+ligada** (o driver do HWiNFO é compatível). O `kalkan-core` carrega a DLL e
+chama as funções **por ordinal**, como o `RunHwinfo` (`FUN_140002d80`) do `.exe`:
+
+| ordinal | função | uso |
+|---|---|---|
+| 590 | `Init(0x40) -> int` | 0 = ok; ≠ 0 sem admin |
+| 883 | `NumSensors() -> int` | |
+| 726 | `Update()` | antes de cada leitura |
+| 749 | `SelectSensor(int)` | |
+| 106 | `GetReading(type, sensor, index, *raw) -> bool` | type 1 = temp, 3 = fan; index 0..0x200 |
+
+Struct de saída (0x1D0 bytes): `+0x00` u8 válido, `+0x08` f64 valor, `+0x3C`
+char[256] nome do sensor, `+0x148` char[128] rótulo, `+0x1C8` u32 tipo.
+
+Escolha (igual a `FUN_1400023b0`): temperatura = rótulo com `package`/`average`;
+fan = rótulo com `cpu` (sem diferenciar maiúsculas); senão a primeira plausível.
+Varre tudo uma vez e depois relê só as duas leituras escolhidas a cada 1 s.
+
+A DLL é procurada em: `KALKAN_HWINFO_DLL`; `config.dat`/`HWiNFO64.dll` ao lado do
+executável; `C:\Program Files (x86)\Kalkan PC SmartMonitor DZ V1.3\config.dat`.
+É binário proprietário do HWiNFO: **não** é versionado nem redistribuído aqui —
+usamos a cópia da instalação do app original.
+
+Diagnóstico: `kalkan hwinfo` (elevado) lista toda leitura de temp/fan e a escolha.
+
+## Fonte 2 — sidecar LibreHardwareMonitor (sem o app original)
+
+Usado só se o motor HWiNFO não carregar. Um **sidecar** `kalkan-sensord.exe` (projeto .NET em
 `sidecar/kalkan-sensord`, publicado self-contained) que carrega o
 **LibreHardwareMonitor** (motor + driver de kernel próprio) e emite leituras como
 JSON por linha no stdout, a cada 1 s:

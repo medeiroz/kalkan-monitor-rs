@@ -35,7 +35,7 @@ Comparada à 1.2, a 1.3 é **mais simples** (detalhes em `docs/protocol.md`):
 ```
 crates/
   kalkan-core/   # núcleo: transporte serial, sensores, protocolo 1.3 completo
-  kalkan-cli/    # utilitário `kalkan` (list, sensors, frame, send, hid)
+  kalkan-cli/    # utilitário `kalkan` (list, sensors, frame, send, hwinfo, hid)
   kalkan-ui/     # dashboard moderno (Slint, tema claro) → bin `kalkan-monitor`
 docs/
   protocol.md    # achados da engenharia reversa (protocolo 1.3 reconstruído)
@@ -50,11 +50,14 @@ cargo run -p kalkan-ui              # abre o dashboard
 ./target/debug/kalkan sensors       # leitura de sensores atual
 ./target/debug/kalkan frame         # monta+embaralha um frame e mostra o hex
 ./target/debug/kalkan send 42 1234 15  # envia temp/fan fixos ao display por 15 s (teste de hardware)
+./target/debug/kalkan hwinfo        # (admin) leituras do motor HWiNFO do app original
 cargo test                          # testes do protocolo + sensores (vetores de regressão)
 ```
 
-Sensores no Windows (opcional — temp/fan reais): compile o sidecar .NET e deixe
-`kalkan-sensord.exe` ao lado do executável (ver [`docs/sensors-windows.md`](docs/sensors-windows.md)):
+Sensores no Windows: com o app original da Kalkan instalado, temp/fan vêm do
+**motor HWiNFO dele** (`config.dat`), sem nada a mais — funciona até com HVCI.
+Sem o app original, compile o sidecar .NET e deixe `kalkan-sensord.exe` ao lado
+do executável (ver [`docs/sensors-windows.md`](docs/sensors-windows.md)):
 
 ```bash
 dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
@@ -71,18 +74,20 @@ dotnet publish sidecar/kalkan-sensord -c Release -r win-x64 --self-contained
 - [x] UI moderna (Slint, tema claro): cards de CPU / temperatura / fan, chip de
       status e dispositivo. Cadência fixa de **1 s** (igual ao original; sem
       seletor de frequência) e descoberta por serial.
-- [x] **Backend de sensores no Windows (autossuficiente)**: temperatura e fan via
-      um **sidecar LibreHardwareMonitor** (`kalkan-sensord`, .NET self-contained,
-      lado a lado com o .exe), com fallback para **HWiNFO Shared Memory**. CPU/RAM
-      load vêm do `sysinfo`. A UI se auto-eleva (UAC), como o original.
-      ⚠️ Com a **Integridade de Memória (HVCI)** ligada, o driver do
-      LibreHardwareMonitor não carrega e temp/fan ficam `--`; use HWiNFO ou PawnIO
-      (driver compatível com HVCI). Ver [`docs/sensors-windows.md`](docs/sensors-windows.md).
+- [x] **Backend de sensores no Windows**: temperatura e fan, em ordem, do **motor
+      HWiNFO do app original** (`config.dat`, chamado por ordinal como o `.exe`;
+      funciona com HVCI), do **sidecar LibreHardwareMonitor** (`kalkan-sensord`;
+      não funciona com HVCI) e do **HWiNFO Shared Memory**. CPU/RAM load vêm do
+      `sysinfo`. A UI se auto-eleva (UAC), como o original.
+      Ver [`docs/sensors-windows.md`](docs/sensors-windows.md).
 - [ ] Backends de sensor para Linux (lm-sensors/hwmon) e macOS (SMC) — temp/fan
       `--` nessas plataformas por ora (CPU load é real).
 - [x] **Envio ponta a ponta validado no hardware 1.3**: cooler em `1A86:484A`
       (COM3), `kalkan send 42 1234` mostrou 42 °C / 1234 RPM no display. O
       display não responde nada pela serial. Cadência sempre 1 s.
+- [x] **Dashboard envia ao display** com sensores reais: abre a porta (e reabre
+      se cair) e manda temp/fan a cada 1 s. Validado num Ryzen 7 9800X3D com HVCI
+      ligado (CPU Die average / CPUFANIN0).
 
 ## Testando o display
 

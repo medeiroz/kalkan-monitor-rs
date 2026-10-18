@@ -6,7 +6,8 @@
 //!   kalkan frame      Monta e embaralha um frame do protocolo e imprime o hex
 //!   kalkan send [temp] [fan] [segundos]
 //!                     Envia valores fixos ao display (teste de hardware)
-//!   kalkan hid        Lista dispositivos HID (diagnóstico; a 1.3 não usa HID)
+//!   kalkan hwinfo     Lista temp/fan do motor HWiNFO do original (admin; Windows)
+//!   kalkan hid       Lista dispositivos HID (diagnóstico; a 1.3 não usa HID)
 //!
 //! Rode `kalkan list` na máquina em que o watercooler está plugado: a porta
 //! marcada com ★ é o cooler (VID/PID 1F3A:0008 ou 1A86:484A).
@@ -21,9 +22,10 @@ fn main() -> Result<()> {
         "sensors" => sensors(),
         "frame" => frame(),
         "send" => send(),
+        "hwinfo" => hwinfo(),
         "hid" => hid(),
         _ => {
-            eprintln!("uso: kalkan <list|sensors|frame|send|hid>");
+            eprintln!("uso: kalkan <list|sensors|frame|send|hwinfo|hid>");
             Ok(())
         }
     }
@@ -137,6 +139,33 @@ fn send() -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Diagnóstico do motor HWiNFO embutido (`config.dat`): lista toda leitura de
+/// temperatura/fan e mostra qual o original escolheria. Precisa de admin.
+#[cfg(windows)]
+fn hwinfo() -> Result<()> {
+    use kalkan_core::sensors::hwinfo_dll::Hwinfo;
+
+    let mut hw = Hwinfo::load()?;
+    println!("DLL      : {}", hw.path.display());
+    let readings = hw.readings();
+    println!("{} leitura(s) de temp/fan:\n", readings.len());
+    for r in &readings {
+        let kind = if r.kind == 1 { "temp" } else { "fan " };
+        println!(
+            "  [{:>2}:{:>3}] {kind} {:>9.1}  {} — {}",
+            r.sensor, r.index, r.value, r.sensor_name, r.label
+        );
+    }
+    let s = hw.snapshot();
+    println!("\nescolha  : temp {:?} °C  fan {:?} RPM", s.temp_c, s.fan_rpm);
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn hwinfo() -> Result<()> {
+    anyhow::bail!("o motor HWiNFO só existe no Windows")
 }
 
 fn hid() -> Result<()> {

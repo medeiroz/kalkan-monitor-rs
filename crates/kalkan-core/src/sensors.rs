@@ -150,7 +150,7 @@ pub fn default_source() -> Box<dyn SensorSource> {
 
 /// Valores extraídos de uma amostra do HWiNFO.
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct HwinfoSnapshot {
+pub struct HwinfoSnapshot {
     pub temp_c: Option<f32>,
     pub fan_rpm: Option<u32>,
 }
@@ -325,6 +325,261 @@ mod hwinfo_shm {
 }
 
 // ============================================================================
+// Backend do Windows — motor HWiNFO embutido (`config.dat` = `HWiNFO64.dll`)
+// ============================================================================
+//
+// O que o app original faz (`RunHwinfo`, `FUN_140002d80`): `LoadLibraryA(
+// "./config.dat")` — que é a DLL do SDK do HWiNFO renomeada, com driver próprio
+// compatível com HVCI — e resolve as funções **por ordinal**:
+//
+//   590 Init(flags=0x40) -> int (0 = ok)      883 NumSensors() -> int
+//   726 Update()                               749 SelectSensor(int)
+//   106 GetReading(type, sensor, index, *Raw) -> bool
+//
+// O laço de leitura (`FUN_1400027e0`) percorre sensor × índice (0..0x200) ×
+// tipo ∈ {1 temp, 3 fan}. Exige administrador (o driver é carregado na hora).
+
+/// Uma leitura do motor HWiNFO (rótulo + valor), para diagnóstico/escolha.
+#[derive(Debug, Clone)]
+pub struct HwinfoReading {
+    pub kind: u32,
+    pub sensor: i32,
+    pub index: i32,
+    pub sensor_name: String,
+    pub label: String,
+    pub value: f64,
+}
+
+#[cfg(windows)]
+pub mod hwinfo_dll {
+    use super::{HwinfoReading, HwinfoSnapshot, READING_TYPE_FAN, READING_TYPE_TEMP};
+    use anyhow::{anyhow, Result};
+    use core::ffi::c_void;
+    use std::path::PathBuf;
+
+    const ORD_INIT: usize = 590;
+    const ORD_NUM_SENSORS: usize = 883;
+    const ORD_UPDATE: usize = 726;
+    const ORD_SELECT_SENSOR: usize = 749;
+    const ORD_GET_READING: usize = 106;
+
+    /// Índices máximos por sensor que o original varre (`0x200`).
+    const MAX_INDEX: i32 = 0x200;
+
+    /// Struct de saída de `GetReading` — 0x1D0 bytes (copiada inteira no original).
+    const RAW_LEN: usize = 0x1D0;
+    const RAW_OFF_VALUE: usize = 0x08; // f64
+    const RAW_OFF_SENSOR_NAME: usize = 0x3C; // char[256]
+    const RAW_OFF_LABEL: usize = 0x148; // char[128] — onde o original busca "package"/"cpu"
+    const RAW_OFF_TYPE: usize = 0x1C8; // u32
+
+    type FnInit = unsafe extern "C" fn(u32) -> i32;
+    type FnNumSensors = unsafe extern "C" fn() -> i32;
+    type FnUpdate = unsafe extern "C" fn();
+    type FnSelectSensor = unsafe extern "C" fn(i32);
+    type FnGetReading = unsafe extern "C" fn(u32, i32, i32, *mut u8) -> bool;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LoadLibraryW(lp_lib_file_name: *const u16) -> *mut c_void;
+        fn GetProcAddress(h_module: *mut c_void, lp_proc_name: *const u8) -> *mut c_void;
+    }
+
+    /// Onde procurar a DLL, em ordem: `KALKAN_HWINFO_DLL`; `config.dat` /
+    /// `HWiNFO64.dll` ao lado do executável; a instalação do app original.
+    fn candidates() -> Vec<PathBuf> {
+        let mut v = Vec::new();
+        if let Some(p) = std::env::var_os("KALKAN_HWINFO_DLL") {
+            v.push(PathBuf::from(p));
+        }
+        if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+            v.push(dir.join("config.dat"));
+            v.push(dir.join("HWiNFO64.dll"));
+        }
+        v.push(PathBuf::from(
+            r"C:\Program Files (x86)\Kalkan PC SmartMonitor DZ V1.3\config.dat",
+        ));
+        v
+    }
+
+    /// Motor HWiNFO carregado e inicializado. (A DLL fica carregada até o fim
+    /// do processo, como no original.)
+    pub struct Hwinfo {
+        update: FnUpdate,
+        num_sensors: FnNumSensors,
+        select_sensor: FnSelectSensor,
+        get_reading: FnGetReading,
+        pub path: PathBuf,
+    }
+
+    // SAFETY: ponteiros de função para uma DLL que nunca é descarregada; o uso
+    // fica serializado pelo `&mut self` do chamador.
+    unsafe impl Send for Hwinfo {}
+
+    impl Hwinfo {
+        /// Carrega a primeira DLL encontrada e chama `Init(0x40)`.
+        pub fn load() -> Result<Self> {
+            let path = candidates()
+                .into_iter()
+                .find(|p| p.is_file())
+                .ok_or_else(|| anyhow!("DLL do HWiNFO (config.dat) não encontrada"))?;
+            let mut wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().collect();
+            wide.push(0);
+
+            // SAFETY: caminho terminado em NUL; ordinais conferidos contra o
+            // binário original; checamos cada ponteiro antes do transmute.
+            unsafe {
+                let module = LoadLibraryW(wide.as_ptr());
+                if module.is_null() {
+                    return Err(anyhow!("falha ao carregar {}", path.display()));
+                }
+                let proc = |ord: usize| -> Result<*mut c_void> {
+                    let p = GetProcAddress(module, ord as *const u8);
+                    if p.is_null() {
+                        Err(anyhow!("ordinal {ord} ausente em {}", path.display()))
+                    } else {
+                        Ok(p)
+                    }
+                };
+                let init: FnInit = std::mem::transmute(proc(ORD_INIT)?);
+                let hw = Self {
+                    update: std::mem::transmute(proc(ORD_UPDATE)?),
+                    num_sensors: std::mem::transmute(proc(ORD_NUM_SENSORS)?),
+                    select_sensor: std::mem::transmute(proc(ORD_SELECT_SENSOR)?),
+                    get_reading: std::mem::transmute(proc(ORD_GET_READING)?),
+                    path: path.clone(),
+                };
+                let rc = init(0x40);
+                if rc != 0 {
+                    return Err(anyhow!(
+                        "Init do HWiNFO falhou ({rc}) — o app precisa rodar como administrador"
+                    ));
+                }
+                (hw.update)();
+                Ok(hw)
+            }
+        }
+
+        /// Atualiza e lista todas as leituras de temperatura e fan.
+        pub fn readings(&mut self) -> Vec<HwinfoReading> {
+            let mut out = Vec::new();
+            let mut raw = vec![0u8; RAW_LEN];
+            // SAFETY: `raw` tem o tamanho que o original reserva para a struct.
+            unsafe {
+                let n = (self.num_sensors)();
+                (self.update)();
+                for sensor in 0..n {
+                    (self.select_sensor)(sensor);
+                    for index in 0..MAX_INDEX {
+                        for kind in [READING_TYPE_TEMP, READING_TYPE_FAN] {
+                            raw.fill(0);
+                            if !(self.get_reading)(kind, sensor, index, raw.as_mut_ptr()) || raw[0] == 0 {
+                                continue;
+                            }
+                            out.push(HwinfoReading {
+                                kind: u32::from_le_bytes(raw[RAW_OFF_TYPE..RAW_OFF_TYPE + 4].try_into().unwrap()),
+                                sensor,
+                                index,
+                                sensor_name: cstr(&raw[RAW_OFF_SENSOR_NAME..RAW_OFF_SENSOR_NAME + 256]),
+                                label: cstr(&raw[RAW_OFF_LABEL..RAW_OFF_LABEL + 128]),
+                                value: f64::from_le_bytes(raw[RAW_OFF_VALUE..RAW_OFF_VALUE + 8].try_into().unwrap()),
+                            });
+                        }
+                    }
+                }
+            }
+            out
+        }
+
+        /// Temperatura e fan da CPU, com a mesma escolha do original
+        /// (`FUN_1400023b0`): temp com "package"/"average" no rótulo; fan com
+        /// "cpu". Sem casamento, cai na primeira leitura plausível.
+        pub fn snapshot(&mut self) -> HwinfoSnapshot {
+            let all = self.readings();
+            let (t, f) = pick(&all);
+            HwinfoSnapshot {
+                temp_c: t.map(|r| r.value as f32),
+                fan_rpm: f.map(|r| r.value.round() as u32),
+            }
+        }
+
+        /// Relê só uma leitura já conhecida (após `update`).
+        fn value_of(&mut self, key: (u32, i32, i32)) -> Option<f64> {
+            let (kind, sensor, index) = key;
+            let mut raw = vec![0u8; RAW_LEN];
+            // SAFETY: idem `readings`.
+            unsafe {
+                (self.select_sensor)(sensor);
+                if !(self.get_reading)(kind, sensor, index, raw.as_mut_ptr()) || raw[0] == 0 {
+                    return None;
+                }
+            }
+            Some(f64::from_le_bytes(raw[RAW_OFF_VALUE..RAW_OFF_VALUE + 8].try_into().unwrap()))
+        }
+    }
+
+    /// Fonte de temp/fan sobre o motor HWiNFO: varre tudo uma vez para escolher
+    /// as leituras (como o original no `RunHwinfo`) e depois relê só essas duas.
+    pub struct HwinfoSource {
+        hw: Hwinfo,
+        temp_key: Option<(u32, i32, i32)>,
+        fan_key: Option<(u32, i32, i32)>,
+    }
+
+    impl HwinfoSource {
+        pub fn new() -> Result<Self> {
+            let mut hw = Hwinfo::load()?;
+            let all = hw.readings();
+            let (t, f) = pick(&all);
+            let key = |r: &HwinfoReading| (r.kind, r.sensor, r.index);
+            Ok(Self {
+                temp_key: t.map(key),
+                fan_key: f.map(key),
+                hw,
+            })
+        }
+
+        pub fn read(&mut self) -> HwinfoSnapshot {
+            // SAFETY: ponteiro de função válido enquanto a DLL estiver carregada.
+            unsafe { (self.hw.update)() };
+            let temp = self.temp_key.and_then(|k| self.hw.value_of(k));
+            let fan = self.fan_key.and_then(|k| self.hw.value_of(k));
+            HwinfoSnapshot {
+                temp_c: temp.filter(|v| (0.0..=150.0).contains(v)).map(|v| v as f32),
+                fan_rpm: fan.filter(|v| *v >= 0.0 && *v < 100_000.0).map(|v| v.round() as u32),
+            }
+        }
+    }
+
+    pub(crate) fn pick(readings: &[HwinfoReading]) -> (Option<&HwinfoReading>, Option<&HwinfoReading>) {
+        let has = |r: &HwinfoReading, keys: &[&str]| {
+            let l = r.label.to_lowercase();
+            keys.iter().any(|k| l.contains(k))
+        };
+        let temps = || {
+            readings
+                .iter()
+                .filter(|r| r.kind == READING_TYPE_TEMP && (0.0..=150.0).contains(&r.value))
+        };
+        let fans = || {
+            readings
+                .iter()
+                .filter(|r| r.kind == READING_TYPE_FAN && r.value > 0.0 && r.value < 100_000.0)
+        };
+        let temp = temps()
+            .find(|r| has(r, &["package", "average"]))
+            .or_else(|| temps().next());
+        let fan = fans().find(|r| has(r, &["cpu"])).or_else(|| fans().next());
+        (temp, fan)
+    }
+
+    fn cstr(bytes: &[u8]) -> String {
+        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+        String::from_utf8_lossy(&bytes[..end]).into_owned()
+    }
+}
+
+// ============================================================================
 // Backend autossuficiente — sidecar LibreHardwareMonitor (`kalkan-sensord.exe`)
 // ============================================================================
 //
@@ -456,9 +711,10 @@ mod sidecar {
 
 /// Fonte de sensores do Windows.
 ///
-/// CPU/RAM load vêm do `sysinfo`. Temperatura e fan vêm, em ordem: do **sidecar
-/// LibreHardwareMonitor** (`kalkan-sensord.exe`, autossuficiente); senão do
-/// **HWiNFO Shared Memory** (se o HWiNFO estiver rodando); senão `None`.
+/// CPU/RAM load vêm do `sysinfo`. Temperatura e fan vêm, em ordem: do **motor
+/// HWiNFO do original** (`config.dat`, funciona sob HVCI; exige admin); senão do
+/// **sidecar LibreHardwareMonitor** (`kalkan-sensord.exe`); senão do **HWiNFO
+/// Shared Memory** (se o HWiNFO estiver rodando); senão `None`.
 ///
 /// Nota: ler MSR/Super-I/O exige um driver de kernel. Com a Integridade de
 /// Memória (HVCI) ligada, o driver do LibreHardwareMonitor (WinRing0) não
@@ -467,15 +723,21 @@ mod sidecar {
 #[cfg(windows)]
 pub struct WindowsSource {
     sys: SysinfoSource,
+    hwinfo: Option<hwinfo_dll::HwinfoSource>,
     sidecar: Option<sidecar::Sidecar>,
 }
 
 #[cfg(windows)]
 impl WindowsSource {
     pub fn new() -> Self {
+        // O motor HWiNFO do original funciona sob HVCI; com ele, o sidecar
+        // (LibreHardwareMonitor) nem é iniciado.
+        let hwinfo = hwinfo_dll::HwinfoSource::new().ok();
+        let sidecar = if hwinfo.is_none() { sidecar::Sidecar::spawn() } else { None };
         Self {
             sys: SysinfoSource::new(),
-            sidecar: sidecar::Sidecar::spawn(),
+            hwinfo,
+            sidecar,
         }
     }
 }
@@ -492,9 +754,13 @@ impl SensorSource for WindowsSource {
     fn read(&mut self) -> Result<Reading> {
         let mut r = self.sys.read()?;
 
-        let (mut temp, mut fan) = match &self.sidecar {
-            Some(sc) => sc.latest(),
-            None => (None, None),
+        let (mut temp, mut fan) = match (&mut self.hwinfo, &self.sidecar) {
+            (Some(hw), _) => {
+                let s = hw.read();
+                (s.temp_c, s.fan_rpm)
+            }
+            (None, Some(sc)) => sc.latest(),
+            (None, None) => (None, None),
         };
 
         // Fallback HWiNFO para o que o sidecar não forneceu.
@@ -554,6 +820,31 @@ mod tests {
         let s = parse_hwinfo(&buf);
         assert_eq!(s.temp_c, Some(42.0)); // preferiu o rótulo de CPU
         assert_eq!(s.fan_rpm, Some(2400)); // preferiu "Pump"
+    }
+
+    /// Regra do original (`FUN_1400023b0`), com rótulos reais de um Ryzen 9800X3D
+    /// + Nuvoton NCT6799D lidos pelo motor HWiNFO.
+    #[cfg(windows)]
+    #[test]
+    fn hwinfo_dll_pick_matches_original_rule() {
+        let r = |kind, label: &str, value| HwinfoReading {
+            kind,
+            sensor: 0,
+            index: 0,
+            sensor_name: String::new(),
+            label: label.into(),
+            value,
+        };
+        let all = [
+            r(READING_TYPE_TEMP, "CPU (Tctl/Tdie)", 47.0),
+            r(READING_TYPE_TEMP, "CPU Die (average)", 49.9),
+            r(READING_TYPE_TEMP, "AUXTIN1", 118.0),
+            r(READING_TYPE_FAN, "AUXFANIN0", 3409.0),
+            r(READING_TYPE_FAN, "CPUFANIN0", 1197.0),
+        ];
+        let (t, f) = hwinfo_dll::pick(&all);
+        assert_eq!(t.map(|x| x.label.as_str()), Some("CPU Die (average)"));
+        assert_eq!(f.map(|x| x.label.as_str()), Some("CPUFANIN0"));
     }
 
     #[test]

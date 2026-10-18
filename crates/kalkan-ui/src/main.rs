@@ -11,7 +11,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use kalkan_core::{available_serial_ports, default_source, Reading};
+use kalkan_core::{
+    available_serial_ports, build_frame, default_source, open_display, scramble, Reading,
+    SerialTransport, Transport,
+};
 use slint::{ModelRc, SharedString, Timer, VecModel};
 
 slint::include_modules!();
@@ -156,6 +159,43 @@ fn update_display(ui: &AppWindow, m: Mapping, r: &Reading, frame_index: i32, sen
 
     ui.set_prev_frame_index(frame_index);
     ui.set_prev_sending(sending);
+}
+
+/// Monta o frame 1.3 com os mesmos valores da prévia (`update_display`).
+fn display_frame(m: Mapping, r: &Reading) -> Vec<u8> {
+    let temp = temp_value(r, m.temp).map(|t| t.round().clamp(0.0, 255.0) as u8).unwrap_or(0);
+    let fan = fan_value(r, m.fan).map(|f| f.min(0xFFFF) as u16).unwrap_or(0);
+    scramble(&build_frame(temp, fan))
+}
+
+/// Envia um frame ao display, (re)abrindo a porta quando preciso.
+///
+/// Sem porta aberta, tenta `open_display()` a cada tick (como o original, que
+/// reconecta sozinho quando o cooler é plugado). Erro de escrita derruba a
+/// conexão; o próximo tick tenta de novo.
+fn send_frame(ui: &AppWindow, port: &mut Option<SerialTransport>, pkt: &[u8]) {
+    if port.is_none() {
+        match open_display() {
+            Ok(t) => {
+                *port = Some(t);
+                ui.set_hid_error("".into());
+            }
+            Err(e) => {
+                ui.set_conn_state(ConnState::Disconnected);
+                ui.set_hid_error(format!("{e}").into());
+                return;
+            }
+        }
+    }
+    let Some(t) = port.as_mut() else { return };
+    match t.write(pkt) {
+        Ok(_) => ui.set_conn_state(ConnState::Connected),
+        Err(e) => {
+            *port = None;
+            ui.set_conn_state(ConnState::Error);
+            ui.set_hid_error(format!("falha ao enviar: {e}").into());
+        }
+    }
 }
 
 /// No Windows, garante que o app rode elevado (como o original): se não estiver,
@@ -324,6 +364,7 @@ fn main() -> anyhow::Result<()> {
     {
         let (ui_w, source, mapping, last, frame) =
             (ui.as_weak(), source.clone(), mapping.clone(), last.clone(), frame.clone());
+        let mut port: Option<SerialTransport> = None;
         timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(1000),
@@ -332,6 +373,7 @@ fn main() -> anyhow::Result<()> {
                 *last.borrow_mut() = reading.clone();
                 let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
                 if let Some(ui) = ui_w.upgrade() {
+                    send_frame(&ui, &mut port, &display_frame(*mapping.borrow(), &reading));
                     update_dashboard(&ui, &reading);
                     let sending = ui.get_conn_state() == ConnState::Connected;
                     update_display(&ui, *mapping.borrow(), &reading, fi, sending);
