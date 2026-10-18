@@ -47,7 +47,7 @@ docs/
 ## Instalar (Windows)
 
 Baixe o `KalkanMonitor-Setup-<versão>.exe` em
-[Releases](https://github.com/medeiroz/kalkan-monitor-rs/releases). Ele instala o
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases). Ele instala o
 dashboard, o sidecar de sensores e o driver **PawnIO** (necessário para ler
 temperatura/fan, inclusive com a Integridade de Memória ligada). Nada mais a
 instalar à parte.
