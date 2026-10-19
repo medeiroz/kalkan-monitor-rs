@@ -6,6 +6,8 @@ global Palette {
     out property <color> bg:          #eef1f7;
     out property <color> surface:     #ffffff;
     out property <color> surface-2:   #f6f8fc;
+    out property <color> hover:       #e9edf5;   // hover tint on surface-2 (sidebar)
+    out property <color> accent-weak-hover: #dbe6fd;   // hover on a selected item
     out property <color> line:        #e4e8f0;
     out property <color> line-strong: #d2d9e6;
 
@@ -41,7 +43,8 @@ component NavItem inherits Rectangle {
     callback clicked;
     height: 42px;
     border-radius: 10px;
-    background: selected ? Palette.accent-weak : touch.has-hover ? Palette.surface-2 : transparent;
+    background: selected ? (touch.has-hover ? Palette.accent-weak-hover : Palette.accent-weak)
+              : touch.has-hover ? Palette.hover : transparent;
     animate background { duration: 120ms; }
 
     HorizontalLayout {
@@ -61,12 +64,13 @@ component NavItem inherits Rectangle {
         Text {
             text: root.text;
             vertical-alignment: center;
-            color: root.selected ? Palette.accent : Palette.ink;
+            color: root.selected ? Palette.accent : touch.has-hover ? #000000 : Palette.ink;
+            animate color { duration: 120ms; }
             font-size: 14px;
             font-weight: root.selected ? 700 : 500;
         }
     }
-    touch := TouchArea { clicked => { root.clicked(); } }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
 // ---------------------------------------------------------------- status pill
@@ -546,7 +550,7 @@ export component AppWindow inherits Window {
                             StatusPill { state: root.conn-state; }
                         }
                     }
-                    TouchArea { clicked => { root.active-page = 2; } }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.active-page = 2; } }
                 }
             }
         }
