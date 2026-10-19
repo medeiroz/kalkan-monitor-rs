@@ -207,37 +207,68 @@ component StatCard inherits Rectangle {
 // ---------------------------------------------------------------- LCD preview
 component DisplayPreview inherits Rectangle {
     in property <string> temp;
+    // Not shown: the real screen only displays the temperature. Kept so the
+    // callers (and the Rust side) don't change.
     in property <string> load;
     in property <string> fan;
     in property <int> frame-index;
     in property <bool> sending;
 
-    background: Palette.lcd-bg;
-    border-radius: 14px;
-    VerticalLayout {
-        padding: 20px;
-        spacing: 6px;
-        HorizontalLayout {
-            alignment: space-between;
-            Text { text: root.temp + "°"; color: Palette.lcd-ink; font-size: 34px; font-weight: 800; }
-            Text { text: root.load + "%"; color: Palette.lcd-ink; font-size: 34px; font-weight: 800; }
-        }
-        Rectangle { height: 2px; background: Palette.lcd-dim.with-alpha(0.4); }
-        HorizontalLayout {
+    // Round screen: square, capped at 240px and centered in the column.
+    property <length> dia: min(root.width, 240px);
+    height: root.dia + 28px;
+
+    Rectangle {
+        y: 0px;
+        width: root.dia;
+        height: root.dia;
+        x: (root.width - root.dia) / 2;
+        background: Palette.lcd-bg;
+        border-radius: root.dia / 2;
+        border-width: 3px;
+        border-color: Palette.teal;
+
+        VerticalLayout {
             alignment: center;
-            Text { text: root.fan + " RPM"; color: Palette.lcd-ink; font-size: 26px; font-weight: 700; }
-        }
-        Rectangle { vertical-stretch: 1; }
-        HorizontalLayout {
-            alignment: space-between;
-            Text { text: "Frame #" + root.frame-index; color: Palette.lcd-dim; font-size: 12px; }
+            spacing: root.dia * 0.04;
+            // seven-segment-ish digits with a small °C at the top right
+            HorizontalLayout {
+                alignment: center;
+                spacing: 4px;
+                Text {
+                    text: root.temp == "" ? "--" : root.temp;
+                    color: white;
+                    font-size: root.dia * 0.34;
+                    font-weight: 800;
+                    font-family: "Consolas";
+                    letter-spacing: root.dia * 0.012;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: start;
+                    padding-top: root.dia * 0.04;
+                    Text { text: "°C"; color: white; font-size: root.dia * 0.1; font-weight: 700; }
+                }
+            }
             Text {
-                text: root.sending ? "● Sending" : "○ Offline preview";
-                color: root.sending ? Palette.teal : Palette.lcd-dim;
-                font-size: 12px;
-                font-weight: 700;
+                text: "KALKAN";
+                color: white;
+                font-size: root.dia * 0.075;
+                font-weight: 800;
+                letter-spacing: root.dia * 0.02;
+                horizontal-alignment: center;
             }
         }
+    }
+
+    Text {
+        y: root.dia + 8px;
+        width: root.width;
+        text: root.sending ? "● Sending" : "○ Offline preview";
+        color: root.sending ? Palette.teal : Palette.faint;
+        font-size: 12px;
+        font-weight: 700;
+        horizontal-alignment: center;
     }
 }
 
@@ -735,12 +766,11 @@ export component AppWindow inherits Window {
                         spacing: 10px;
                         Text { text: "SCREEN PREVIEW"; color: Palette.muted; font-size: 13px; font-weight: 700; letter-spacing: 0.4px; }
                         DisplayPreview {
-                            height: 200px;
                             temp: root.prev-temp; load: root.prev-load; fan: root.prev-fan;
                             frame-index: root.prev-frame-index; sending: root.prev-sending;
                         }
                         Text {
-                            text: "Reflects the real frame (after rounding and saturating to each byte's limits).";
+                            text: "Matches the cooler's round display, which shows only the temperature.";
                             color: Palette.faint; font-size: 12px; font-weight: 500; wrap: word-wrap;
                         }
                         Rectangle { vertical-stretch: 1; }
