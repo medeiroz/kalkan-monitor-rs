@@ -448,6 +448,9 @@ export component AppWindow inherits Window {
     // Wide layout needs 200 (sidebar) + 2x24 (padding) + 3x170 (cards) + 2x18 = 794px.
     min-width: 520px;
     min-height: 420px;
+    // Cap = 200 (sidebar) + 2x24 (padding) + 1100 (content cap): at max width the
+    // content fills the window with no extra side margins.
+    max-width: 1348px;
     background: Palette.bg;
     property <bool> compact: root.width < 800px;
     property <length> side-w: root.compact ? 160px : 200px;
