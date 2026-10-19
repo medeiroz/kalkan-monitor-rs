@@ -118,7 +118,8 @@ Para gerar o instalador localmente: `./windows/installer/build.ps1 -Version 0.1.
   → **Close monitor** encerra. Abrir o app de novo enquanto ele roda só mostra
   a janela.
 - **Settings → Start with the operating system** registra o app para iniciar
-  escondido na bandeja no login:
+  escondido na bandeja no login. Vem ativado na primeira execução (uma vez;
+  desligue em Settings e ele continua desligado):
   - Windows: uma tarefa agendada (`Kalkan Monitor`, no logon, privilégios mais
     altos), então ele inicia elevado sem prompt do UAC. O desinstalador a remove.
   - macOS: um LaunchAgent em `~/Library/LaunchAgents` que executa o binário

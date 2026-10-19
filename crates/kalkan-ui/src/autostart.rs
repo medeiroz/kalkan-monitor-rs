@@ -160,13 +160,25 @@ mod launch_agent {
     pub fn is_unstable_location(exe: &str) -> bool {
         exe.starts_with("/Volumes/") || exe.contains("/AppTranslocation/")
     }
+
+    /// Error: the executable is somewhere a LaunchAgent cannot point to.
+    #[derive(Debug)]
+    pub struct UnstableLocation;
+
+    impl std::fmt::Display for UnstableLocation {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("Move Kalkan Monitor to the Applications folder and open it from there first")
+        }
+    }
+
+    impl std::error::Error for UnstableLocation {}
 }
 
 #[cfg(target_os = "macos")]
 mod imp {
     use std::path::PathBuf;
 
-    use anyhow::{bail, Context, Result};
+    use anyhow::{Context, Result};
 
     use super::launch_agent::{is_unstable_location, plist, LABEL};
 
@@ -183,7 +195,7 @@ mod imp {
         // Inside the .app bundle this is `Kalkan Monitor.app/Contents/MacOS/kalkan-monitor`.
         let exe = std::env::current_exe()?.to_string_lossy().into_owned();
         if is_unstable_location(&exe) {
-            bail!("Move Kalkan Monitor to the Applications folder and open it from there first");
+            return Err(super::launch_agent::UnstableLocation.into());
         }
         std::fs::create_dir_all(path.parent().unwrap())?;
         std::fs::write(&path, plist(&exe))?;
@@ -247,9 +259,86 @@ pub fn set_enabled(on: bool) -> Result<()> {
     }
 }
 
+/// What the first-run "enable by default" attempt did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Attempt {
+    Enabled,
+    /// macOS: the app is not in a stable location yet; retry on a later launch.
+    UnstableLocation,
+    Failed(String),
+}
+
+/// What to do after the first-run decision.
+#[derive(Debug, PartialEq, Eq)]
+pub struct FirstRun {
+    /// Persist `autostart_default_applied = true`.
+    pub mark_applied: bool,
+    /// Error text to show on the Settings page.
+    pub error: Option<String>,
+}
+
+/// Pure decision logic: `None` when the default was already applied (the
+/// attempt is not run); otherwise runs `attempt` once and maps the outcome.
+pub fn decide_first_run(applied: bool, attempt: impl FnOnce() -> Attempt) -> Option<FirstRun> {
+    if applied {
+        return None;
+    }
+    Some(match attempt() {
+        Attempt::Enabled => FirstRun { mark_applied: true, error: None },
+        Attempt::UnstableLocation => FirstRun { mark_applied: false, error: None },
+        Attempt::Failed(e) => FirstRun { mark_applied: true, error: Some(e) },
+    })
+}
+
+/// Applies the "enabled by default" once. See [`decide_first_run`].
+pub fn first_run_default(applied: bool) -> Option<FirstRun> {
+    decide_first_run(applied, || {
+        if is_enabled() {
+            return Attempt::Enabled;
+        }
+        match set_enabled(true) {
+            Ok(()) => Attempt::Enabled,
+            Err(e) if e.downcast_ref::<launch_agent::UnstableLocation>().is_some() => {
+                Attempt::UnstableLocation
+            }
+            Err(e) => Attempt::Failed(e.to_string()),
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::launch_agent::*;
+    use super::{decide_first_run, Attempt, FirstRun};
+
+    #[test]
+    fn first_run_skips_when_already_applied() {
+        let r = decide_first_run(true, || panic!("must not attempt"));
+        assert_eq!(r, None);
+    }
+
+    #[test]
+    fn first_run_outcomes() {
+        assert_eq!(
+            decide_first_run(false, || Attempt::Enabled),
+            Some(FirstRun { mark_applied: true, error: None })
+        );
+        assert_eq!(
+            decide_first_run(false, || Attempt::UnstableLocation),
+            Some(FirstRun { mark_applied: false, error: None })
+        );
+        assert_eq!(
+            decide_first_run(false, || Attempt::Failed("boom".into())),
+            Some(FirstRun { mark_applied: true, error: Some("boom".into()) })
+        );
+    }
+
+    #[test]
+    fn unstable_location_error_is_detectable() {
+        let e: anyhow::Error = UnstableLocation.into();
+        assert!(e.downcast_ref::<UnstableLocation>().is_some());
+        assert!(anyhow::anyhow!("x").downcast_ref::<UnstableLocation>().is_none());
+    }
 
     #[test]
     fn plist_runs_the_bundle_executable_in_the_tray() {

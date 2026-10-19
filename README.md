@@ -117,7 +117,8 @@ To build the installer locally: `./windows/installer/build.ps1 -Version 0.1.0`
   the display). Left-click the icon to reopen it; right-click → **Close
   monitor** quits. Opening the app again while it runs just shows the window.
 - **Settings → Start with the operating system** registers the app to start
-  hidden in the tray at login:
+  hidden in the tray at login. It is enabled on the first run (once; turn it
+  off in Settings and it stays off):
   - Windows: a Task Scheduler task (`Kalkan Monitor`, at logon, highest
     privileges), so it starts elevated without a UAC prompt. The uninstaller
     removes it.

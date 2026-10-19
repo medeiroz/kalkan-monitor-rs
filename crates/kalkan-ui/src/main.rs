@@ -435,6 +435,20 @@ fn main() -> anyhow::Result<()> {
     instance::listen(show.clone());
 
     // "Start with the operating system" (reflects the real OS registration).
+    // On the first run it is enabled by default, once (see `autostart::first_run_default`).
+    let mut saved = Settings::load();
+    if let Some(r) = autostart::first_run_default(saved.autostart_default_applied) {
+        if let Some(e) = r.error {
+            ui.set_autostart_error(e.into());
+        }
+        if r.mark_applied {
+            saved.autostart_default_applied = true;
+            if let Err(e) = saved.save() {
+                eprintln!("could not save settings: {e}");
+            }
+        }
+    }
+    let autostart_applied = saved.autostart_default_applied;
     ui.set_autostart(autostart::is_enabled());
     {
         let ui_w = ui.as_weak();
@@ -503,7 +517,6 @@ fn main() -> anyhow::Result<()> {
 
     // State shared between the timer and the slot-change callback.
     // The saved choices (Auto/Auto when there is no usable settings file).
-    let saved = Settings::load();
     let mapping = Rc::new(RefCell::new(Mapping {
         temp: saved.temp_source,
         fan: saved.fan_source,
@@ -522,6 +535,7 @@ fn main() -> anyhow::Result<()> {
                 temp_source: m.temp.clone(),
                 fan_source: m.fan.clone(),
                 cooler_model: model.get(),
+                autostart_default_applied: autostart_applied,
             };
             if let Err(e) = s.save() {
                 eprintln!("could not save settings: {e}");
@@ -566,6 +580,7 @@ fn main() -> anyhow::Result<()> {
                         temp_source: m.temp.clone(),
                         fan_source: m.fan.clone(),
                         cooler_model: model.get(),
+                        autostart_default_applied: autostart_applied,
                     };
                     if let Err(e) = s.save() {
                         eprintln!("could not save settings: {e}");

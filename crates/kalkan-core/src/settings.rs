@@ -33,6 +33,10 @@ pub struct Settings {
     pub fan_source: FanSource,
     #[serde(default)]
     pub cooler_model: CoolerModel,
+    /// The "start with the operating system" default was already applied once
+    /// (so a user who turns it off later is never overridden).
+    #[serde(default)]
+    pub autostart_default_applied: bool,
 }
 
 impl Settings {
@@ -87,6 +91,7 @@ mod tests {
             temp_source: TempSource::Sensor("/gpu/0/temp/0".into()),
             fan_source: FanSource::Sensor("/lpc/0/fan/2".into()),
             cooler_model: CoolerModel::DeltaV2,
+            autostart_default_applied: true,
         };
         s.save_to(&p).unwrap();
         assert_eq!(Settings::load_from(&p), s);
@@ -122,6 +127,8 @@ mod tests {
         std::fs::write(&p, r#"{"temp_source":"max_cpu_gpu"}"#).unwrap();
         assert_eq!(Settings::load_from(&p).cooler_model, CoolerModel::Alpha);
         assert_eq!(Settings::load_from(&p).temp_source, TempSource::MaxCpuGpu);
+        // Old files never applied the autostart default.
+        assert!(!Settings::load_from(&p).autostart_default_applied);
         // Unknown value falls back to Alpha without discarding the rest.
         std::fs::write(&p, r#"{"temp_source":"max_cpu_gpu","cooler_model":"bogus"}"#).unwrap();
         let s = Settings::load_from(&p);
