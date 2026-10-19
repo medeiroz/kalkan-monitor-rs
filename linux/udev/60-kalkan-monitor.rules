@@ -1,4 +1,4 @@
-# Kalkan Alpha 360 / 360-W / 240 watercooler display (SmartMonitor 1.3) (USB serial, /dev/ttyUSB* or /dev/ttyACM*).
+# Kalkan Alpha 240 / 360 / 360-W and Delta V2 240 / 360 watercooler display (SmartMonitor 1.3) (USB serial, /dev/ttyUSB* or /dev/ttyACM*).
 #
 # TAG+="uaccess" gives the user logged in at the machine access to the port.
 # MODE/GROUP is the fallback for sessions without a seat (SSH, minimal setups):

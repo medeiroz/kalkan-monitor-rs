@@ -1,24 +1,42 @@
-# Kalkan Monitor RS: monitor for Kalkan Alpha 360, 360-W and 240 AIO watercoolers
+# Kalkan Monitor RS: monitor for Kalkan Alpha 240/360/360-W and Delta V2 240/360 AIO watercoolers
 
 **English** | [Português (Brasil)](README-PT.md)
 
 Open-source, cross-platform (Windows / macOS / Linux) monitor for the **Kalkan
-Alpha 360**, **Kalkan Alpha 360-W** and **Kalkan Alpha 240** AIO liquid
-coolers. It reads your **CPU temperature** and shows it on the cooler's round
-LCD, as a free, open-source alternative to the official Kalkan PC SmartMonitor
-software. Written in Rust.
+Alpha 240**, **Alpha 360** and **Alpha 360-W** and the **Kalkan Delta V2 240**
+and **Delta V2 360** AIO liquid coolers. It reads your **CPU temperature** and
+sends it to the cooler's display, as a free, open-source alternative to the
+official Kalkan PC SmartMonitor software. Written in Rust.
 
 ## Supported coolers
 
-| Cooler | Notes |
-| --- | --- |
-| Kalkan Alpha 360 | 360 mm AIO watercooler with a round LCD |
-| Kalkan Alpha 360-W | White version of the Alpha 360 |
-| Kalkan Alpha 240 | 240 mm AIO watercooler with a round LCD |
+The official Kalkan list (see [kalkan.com.br/cooler](https://www.kalkan.com.br/cooler)):
 
-All three have a **round display that shows only the CPU temperature**. Fan
-RPM and load are not shown on the screen (the app still sends them in the
-protocol frame, but these models do not display them).
+| Cooler | Model code | Notes |
+| --- | --- | --- |
+| [Kalkan Alpha 240](https://www.kalkan.com.br/produto/alpha-240) | KLK047 | 240 mm AIO watercooler, round LCD showing only the CPU temperature. Units purchased from Jan/2026 only (*) |
+| [Kalkan Alpha 360](https://www.kalkan.com.br/produto/alpha-360) | KLK048 | 360 mm AIO watercooler, round LCD showing only the CPU temperature. Units purchased from Jan/2026 only (*) |
+| [Kalkan Alpha 360-W](https://www.kalkan.com.br/produto/alpha-360w) | KLK049 | White version of the Alpha 360. Units purchased from Jan/2026 only (*) |
+| [Kalkan Delta V2 240](https://www.kalkan.com.br/produto/delta-v2-240) | KLK066 | 240 mm AIO watercooler, compatible by protocol; not yet tested on hardware |
+| [Kalkan Delta V2 360](https://www.kalkan.com.br/produto/delta-v2-360) | KLK067 | 360 mm AIO watercooler, compatible by protocol; not yet tested on hardware |
+
+> [!WARNING]
+> (*) **The Alpha line (Alpha 240, 360 and 360-W) is supported only for units
+> purchased from January 2026 onward.** Units purchased before Jan/2026 are not
+> supported.
+
+**Alpha 240 / 360 / 360-W:** the **round display shows only the CPU
+temperature**. Fan RPM and load are not shown on the screen (the app still sends
+them in the protocol frame, but these models do not display them).
+
+**Delta V2 240 / 360:** compatible by protocol (same official software); **not
+yet tested on hardware**. The official "Kalkan PC SmartMonitor (Linha Delta V2)
+V1.3" Windows software was verified statically to be the exact same application
+binary (same SHA-256) this protocol was derived from, so the USB IDs
+(`1F3A:0008` / `1A86:484A`), serial settings and frame format are identical.
+What the Delta V2 display shows (shape and fields) has not been verified; the
+official software sends temperature and fan speed. If you own a Delta V2,
+reports are welcome: please open an issue with the output of `kalkan list`.
 
 > [!IMPORTANT]
 > **This repository targets version 1.3 of the Kalkan PC SmartMonitor

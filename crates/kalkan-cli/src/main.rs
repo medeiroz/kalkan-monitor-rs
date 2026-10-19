@@ -1,5 +1,5 @@
 //! `kalkan` — command-line utility for the cross-platform driver (SmartMonitor
-//! 1.3) of the Kalkan Alpha 360 / 360-W / 240 watercoolers.
+//! 1.3) of the Kalkan Alpha 240 / 360 / 360-W and Delta V2 240 / 360 watercoolers.
 //!
 //! Commands:
 //!   kalkan list       Lists serial ports (marks the cooler by VID/PID)

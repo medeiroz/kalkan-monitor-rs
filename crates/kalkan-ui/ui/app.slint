@@ -728,7 +728,7 @@ export component AppWindow inherits Window {
                             padding: 24px;
                             spacing: 18px;
                             Text {
-                                text: "Choose the source for each field sent to the cooler. The round display on the Kalkan Alpha 360, 360-W and 240 shows the temperature; the other fields are still sent to the device but are not displayed on these models.";
+                                text: "Choose the source for each field sent to the cooler. Alpha models (240, 360, 360-W) show only the temperature; the other fields are still sent to the device.";
                                 color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
                             }
                             SlotEditor {
@@ -770,7 +770,7 @@ export component AppWindow inherits Window {
                             frame-index: root.prev-frame-index; sending: root.prev-sending;
                         }
                         Text {
-                            text: "Matches the cooler's round display, which shows only the temperature.";
+                            text: "Matches the Alpha models' round display, which shows only the temperature.";
                             color: Palette.faint; font-size: 12px; font-weight: 500; wrap: word-wrap;
                         }
                         Rectangle { vertical-stretch: 1; }
@@ -821,7 +821,7 @@ export component AppWindow inherits Window {
                             spacing: 6px;
                             Text { text: "How to connect"; color: Palette.ink; font-size: 15px; font-weight: 800; }
                             Text {
-                                text: "Plug the watercooler (Kalkan Alpha 360, 360-W or 240) into USB and run `kalkan list`: the port marked with ★ is the cooler (VID/PID 1F3A:0008 or 1A86:484A). The app opens the serial port and starts sending data to the display.";
+                                text: "Plug the watercooler (Kalkan Alpha 240, 360 or 360-W, units purchased from Jan/2026; or Delta V2 240 or 360) into USB and run `kalkan list`: the port marked with ★ is the cooler (VID/PID 1F3A:0008 or 1A86:484A). The app opens the serial port and starts sending data to the display.";
                                 color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
                             }
                         }

@@ -1,6 +1,7 @@
-//! Cross-platform core of the driver for the **Kalkan Alpha 360**, **Alpha
-//! 360-W** and **Alpha 240** AIO watercoolers (Kalkan PC SmartMonitor **1.3**
-//! protocol). Their round LCD shows only the CPU temperature.
+//! Cross-platform core of the driver for the **Kalkan Alpha 240 / 360 /
+//! 360-W** and **Delta V2 240 / 360** AIO watercoolers (Kalkan PC SmartMonitor
+//! **1.3** protocol). The Alpha models have a round LCD that shows only the CPU
+//! temperature; Delta V2 is compatible by protocol but not yet hardware-tested.
 //!
 //! Rust reimplementation of the behavior observed in the original Windows app
 //! (see `docs/protocol.md`). Builds for Windows, macOS and Linux.

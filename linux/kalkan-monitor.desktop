@@ -2,10 +2,10 @@
 Type=Application
 Name=Kalkan Monitor
 GenericName=Watercooler display monitor
-Comment=Show the CPU temperature on Kalkan Alpha 360, 360-W and 240 watercoolers
+Comment=Show the CPU temperature on Kalkan Alpha and Delta V2 watercoolers
 Exec=kalkan-monitor
 Icon=kalkan-monitor
 Terminal=false
 Categories=Utility;System;Monitor;
-Keywords=kalkan;alpha 360;alpha 240;cooler;watercooler;aio;smartmonitor;cpu;temperature;
+Keywords=kalkan;alpha 240;alpha 360;alpha 360-w;delta v2;delta v2 240;delta v2 360;cooler;watercooler;aio;smartmonitor;cpu;temperature;
 StartupWMClass=kalkan-monitor
