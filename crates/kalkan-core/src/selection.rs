@@ -191,6 +191,11 @@ fn temp_text(v: Option<f32>) -> String {
     v.map(|v| format!("{v:.0} °C")).unwrap_or_default()
 }
 
+/// Usage percentage with its unit, spaced like the temperature and RPM texts.
+pub fn load_text(v: Option<f32>) -> String {
+    v.map(|v| format!("{} %", v.round().clamp(0.0, 100.0) as u32)).unwrap_or_default()
+}
+
 fn fan_text(v: Option<f32>) -> String {
     v.map(|v| format!("{} RPM", v.round().max(0.0) as u32)).unwrap_or_default()
 }
@@ -324,6 +329,14 @@ pub fn fan_options(r: &Reading, current: &FanSource) -> Vec<SourceOption<FanSour
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn load_text_has_spaced_percent_suffix() {
+        assert_eq!(load_text(Some(28.4)), "28 %");
+        assert_eq!(load_text(Some(99.6)), "100 %");
+        assert_eq!(load_text(Some(-1.0)), "0 %");
+        assert_eq!(load_text(None), "");
+    }
 
     fn sv(id: &str, hw: &str, hw_type: &str, name: &str, kind: SensorKind, value: f32) -> SensorValue {
         SensorValue {

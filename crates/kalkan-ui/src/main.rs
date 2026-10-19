@@ -15,10 +15,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use kalkan_core::{
-    available_serial_ports, default_source, fan_options, select_fan, select_temp, temp_options,
+    available_serial_ports, default_source, fan_options, load_text, select_fan, select_temp, temp_options,
     CoolerModel, FanSource, Fields, MaxTracker, Reading, Settings, same_layout, SourceOption, TempSource,
 };
-use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
+use slint::{ComponentHandle, Model, SharedString, Timer, VecModel};
 
 mod autostart;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -50,6 +50,7 @@ struct Options {
     fan: Vec<SourceOption<FanSource>>,
     temp_model: Rc<VecModel<SourceItem>>,
     fan_model: Rc<VecModel<SourceItem>>,
+    load_model: Rc<VecModel<SourceItem>>,
     /// Nothing pushed to the selectors yet.
     first: bool,
 }
@@ -61,6 +62,7 @@ impl Default for Options {
             fan: Vec::new(),
             temp_model: Rc::new(VecModel::default()),
             fan_model: Rc::new(VecModel::default()),
+            load_model: Rc::new(VecModel::default()),
             first: true,
         }
     }
@@ -116,6 +118,17 @@ fn refresh_options(ui: &AppWindow, m: &Mapping, opts: &mut Options, r: &Reading)
     if opts.first {
         ui.set_temp_sources(opts.temp_model.clone().into());
         ui.set_fan_sources(opts.fan_model.clone().into());
+        ui.set_load_sources(opts.load_model.clone().into());
+    }
+    let load = load_rows(r);
+    if opts.load_model.row_count() == load.len() {
+        for (i, row) in load.into_iter().enumerate() {
+            if opts.load_model.row_data(i).map_or(true, |o| o.value != row.value) {
+                opts.load_model.set_row_data(i, row);
+            }
+        }
+    } else {
+        opts.load_model.set_vec(load);
     }
     sync_model(&opts.temp_model, &opts.temp, &temp, opts.first);
     sync_model(&opts.fan_model, &opts.fan, &fan, opts.first);
@@ -126,19 +139,19 @@ fn refresh_options(ui: &AppWindow, m: &Mapping, opts: &mut Options, r: &Reading)
     opts.first = false;
 }
 
-/// A plain list of entries without secondary text (the usage selector).
-fn plain_model(items: &[&str]) -> ModelRc<SourceItem> {
-    let v: Vec<SourceItem> = items
+/// Rows of the usage selector (no secondary text), each with its live value.
+fn load_rows(r: &Reading) -> Vec<SourceItem> {
+    ["CPU usage", "RAM usage", "GPU · no backend"]
         .iter()
-        .map(|s| SourceItem {
-            primary: (*s).into(),
+        .enumerate()
+        .map(|(idx, name)| SourceItem {
+            primary: (*name).into(),
             secondary: SharedString::default(),
             group: SharedString::default(),
-            value: SharedString::default(),
+            value: load_text(load_value(r, idx)).into(),
             header: false,
         })
-        .collect();
-    ModelRc::new(VecModel::from(v))
+        .collect()
 }
 
 // -- source selection per field (index → reading value) -----------------------
@@ -441,8 +454,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // The temperature and fan lists are filled from the sensors as they appear
-    // (see `refresh_options`); usage is a fixed list.
-    ui.set_load_sources(plain_model(&["CPU usage", "RAM usage", "GPU · no backend"]));
+    // (see `refresh_options`), as is the fixed usage list.
 
     // Best-effort discovery of the 1.3 display on the serial ports (VID/PID).
     match available_serial_ports() {

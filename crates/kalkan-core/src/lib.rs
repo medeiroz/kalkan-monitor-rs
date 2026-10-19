@@ -35,7 +35,7 @@ pub use hwmon::LinuxSource;
 pub use macos::MacSource;
 pub use v1_3::protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
 pub use selection::{
-    fan_options, same_layout, select_fan, select_temp, temp_options, FanSource, MaxTracker,
+    fan_options, load_text, same_layout, select_fan, select_temp, temp_options, FanSource, MaxTracker,
     SourceOption, TempSource,
 };
 pub use sensors::{default_source, Reading, SensorKind, SensorSource, SensorValue, SysinfoSource};
