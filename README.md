@@ -47,11 +47,12 @@ The official Kalkan list (see [kalkan.com.br/cooler](https://www.kalkan.com.br/c
 
 | Cooler | Model code | Notes |
 | --- | --- | --- |
-| [Kalkan Alpha 240](https://www.kalkan.com.br/produto/alpha-240) | KLK047 | 240 mm AIO watercooler, round LCD showing only the CPU temperature. Alpha Rev.2 (firmware 1.3) only |
-| [Kalkan Alpha 360](https://www.kalkan.com.br/produto/alpha-360) | KLK048 | 360 mm AIO watercooler, round LCD showing only the CPU temperature. Alpha Rev.2 (firmware 1.3) only |
-| [Kalkan Alpha 360-W](https://www.kalkan.com.br/produto/alpha-360w) | KLK049 | White version of the Alpha 360. Alpha Rev.2 (firmware 1.3) only |
+| [Kalkan Alpha 240](https://www.kalkan.com.br/produto/alpha-240) | KLK047 | 240 mm AIO watercooler, round LCD showing only the CPU temperature. Alpha Rev.2 (firmware 1.3); Rev.1 is experimental (see below) |
+| [Kalkan Alpha 360](https://www.kalkan.com.br/produto/alpha-360) | KLK048 | 360 mm AIO watercooler, round LCD showing only the CPU temperature. Alpha Rev.2 (firmware 1.3); Rev.1 is experimental (see below) |
+| [Kalkan Alpha 360-W](https://www.kalkan.com.br/produto/alpha-360w) | KLK049 | White version of the Alpha 360. Alpha Rev.2 (firmware 1.3); Rev.1 is experimental (see below) |
 | [Kalkan Delta V2 240](https://www.kalkan.com.br/produto/delta-v2-240) | KLK066 | 240 mm AIO watercooler, compatible by protocol; not yet tested on hardware |
 | [Kalkan Delta V2 360](https://www.kalkan.com.br/produto/delta-v2-360) | KLK067 | 360 mm AIO watercooler, compatible by protocol; not yet tested on hardware |
+| Kalkan Alpha 240 / 360 / 360-W **Rev.1** (sold before Jan/2026, firmware 1.2) | KLK047 / KLK048 / KLK049 | **Experimental**: implemented, not yet tested on real hardware |
 
 **Alpha 240 / 360 / 360-W:** the **round display shows only the CPU
 temperature**. Fan RPM and load are not shown on the screen (the app still sends
@@ -65,6 +66,16 @@ binary (same SHA-256) this protocol was derived from, so the USB IDs
 What the Delta V2 display shows (shape and fields) has not been verified; the
 official software sends temperature and fan speed. If you own a Delta V2,
 reports are welcome: please open an issue with the output of `kalkan list`.
+
+**Alpha Rev.1 (sold before Jan/2026, firmware 1.2): experimental, not yet tested
+on real hardware.** These older units use a different protocol (USB HID
+`0416:1100` with a handshake) instead of the serial port of Rev.2. The app
+implements it from a static analysis of the official 1.2 software and picks it
+by itself when no Rev.2 / Delta V2 cooler is plugged in. Reports are welcome:
+run `kalkan list` and `kalkan handshake`, then open an issue with their output
+and what the display showed. Which revision is yours? The box label has the
+manufacturing date after the SKU (e.g. `KLK00047 - 20251106XXX` is November
+2025, so Rev.1).
 
 ## Features
 
@@ -91,10 +102,20 @@ reports are welcome: please open an issue with the output of `kalkan list`.
 
 ## Troubleshooting / FAQ
 
-**The cooler's display is stuck at "88°".** You most likely have the other
-hardware revision. This app supports Alpha **Rev.2** (firmware 1.3, sold from
-January 2026) and Delta V2. Alpha **Rev.1** (sold before January 2026, firmware
-1.2) uses a different protocol that is not supported yet.
+**The cooler's display is stuck at "88°".** The display is not getting data it
+understands. First **close the official Kalkan software** (two programs talking
+to the display at once get in each other's way). If it stays at 88°, the cooler
+probably has the other hardware revision: Alpha **Rev.2** (sold from January
+2026) and Delta V2 use firmware 1.3; Alpha **Rev.1** (sold before January 2026)
+uses firmware 1.2, which is supported experimentally and not yet tested on real
+hardware. Run `kalkan list`: it marks the cooler with `★ firmware 1.3` or
+`★ firmware 1.2`. For a Rev.1, `kalkan handshake` shows whether it answers;
+please report the result in an issue.
+
+**Do I need to close the official Kalkan software?** Yes. Only one program
+should talk to the display at a time: on Windows both would send frames and the
+display would get a mix of them, and on macOS the second one cannot open a Rev.1
+display at all.
 
 **The app says the cooler was not found.** Check that the USB cable is plugged
 in, try another USB port, and **close the official Kalkan software** or any
@@ -106,7 +127,9 @@ It starts with the system without asking again.
 
 **Linux: "Permission denied" opening the display.** Install the `.deb` (it adds
 the permission rule) and replug the cooler. Without the rule, run
-`sudo usermod -aG dialout $USER` (`uucp` on Arch) and log in again. Details in
+`sudo usermod -aG dialout $USER` (`uucp` on Arch) and log in again. An Alpha
+Rev.1 (firmware 1.2) shows up as a `/dev/hidraw*` device instead: it needs the
+udev rule (the `dialout` group does not help). Details in
 [Install (Linux)](#install-linux).
 
 **macOS: the display is plugged in but no port is found.** The display's USB
@@ -119,6 +142,10 @@ Settings → Privacy & Security** and replug the cooler. Details in
 tested on real hardware yet. Reports are welcome (open an issue with the output
 of `kalkan list`).
 
+**Is my Alpha Rev.1 supported?** Experimentally: the firmware 1.2 protocol is
+implemented but has not been tested on real hardware yet. Reports are welcome
+(open an issue with the output of `kalkan list` and `kalkan handshake`).
+
 ---
 
 # Technical details
@@ -126,7 +153,9 @@ of `kalkan list`).
 The sections below are for the curious and for contributors.
 
 It is a Rust reimplementation of the driver + interface for the **Kalkan
-SmartMonitor 1.3** protocol used by these coolers. A new project — it
+SmartMonitor 1.3** protocol used by these coolers, plus an experimental port of
+the older **1.2** protocol (Alpha Rev.1, USB HID; see
+[`docs/v1.2/protocol.md`](docs/v1.2/protocol.md)). A new project — it
 is not the original `.exe` translated; it is a reconstruction based on reverse
 engineering its behavior (see [`docs/v1.3/protocol.md`](docs/v1.3/protocol.md)), with a
 new modern UI on top.
@@ -154,8 +183,10 @@ Compared to 1.2, the 1.3 is **simpler** (details in `docs/v1.3/protocol.md`):
 
 ```
 crates/
-  kalkan-core/   # core: serial transport, sensors, full 1.3 protocol
-  kalkan-cli/    # `kalkan` utility (list, sensors, frame, send, hwinfo, hid)
+  kalkan-core/   # core: sensors, firmware selection, transports
+    src/v1_3/    #   firmware 1.3: serial, 5-byte frame (Alpha Rev.2, Delta V2)
+    src/v1_2/    #   firmware 1.2: USB HID, handshake, 64-byte frame (Alpha Rev.1, experimental)
+  kalkan-cli/    # `kalkan` utility (list, sensors, frame, send, handshake, hwinfo, hid)
   kalkan-ui/     # modern dashboard (Slint, light theme) → `kalkan-monitor` bin
 sidecar/
   kalkan-sensord/ # Windows sensors via LibreHardwareMonitor (.NET)
@@ -168,7 +199,7 @@ docs/
   v1.3/
     protocol.md  # reverse-engineering findings (reconstructed 1.3 protocol)
   v1.2/
-    protocol.md  # 1.2 (HID) protocol notes: experimental, not implemented yet
+    protocol.md  # 1.2 (HID) protocol notes: implemented, experimental, untested on hardware
 ```
 
 ## Install (Windows)
@@ -221,7 +252,8 @@ sudo apt install ./kalkan-monitor_<version>_amd64.deb
 ```
 
 The package installs the `kalkan-monitor` app, a desktop entry, an icon and the
-**udev rule** that lets you open the display's serial port. Other distros: build
+**udev rule** that lets you open the display (its serial port, or the
+`/dev/hidraw*` node of an Alpha Rev.1). Other distros: build
 from source (below) and copy [`linux/udev/60-kalkan-monitor.rules`](linux/udev/60-kalkan-monitor.rules)
 to `/etc/udev/rules.d/`.
 
@@ -237,6 +269,12 @@ sudo usermod -aG dialout $USER   # "uucp" on Arch
 
 If the port cannot be opened, the app says so in the error banner and repeats
 this fix.
+
+**Alpha Rev.1 (firmware 1.2, experimental)** is a USB HID device
+(`/dev/hidraw*`, `0416:1100`). The same udev rule file grants access to it
+(`TAG+="uaccess"`); the `dialout` group does not apply. After installing the
+rule, replug the cooler or run
+`sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw`.
 
 **Sensors** come from the kernel's hwmon interface (`/sys/class/hwmon`): CPU,
 GPU, motherboard fans, NVMe drives, memory and liquid coolers, grouped by
@@ -307,10 +345,11 @@ without a port (driver).
 ```bash
 cargo build
 cargo run -p kalkan-ui              # opens the dashboard
-./target/debug/kalkan list          # lists serial ports — finds the cooler (★)
+./target/debug/kalkan list          # lists serial ports and 1.2 HID candidates — finds the cooler (★)
 ./target/debug/kalkan sensors       # current sensor reading
 ./target/debug/kalkan frame         # builds+scrambles a frame and shows the hex
 ./target/debug/kalkan send 42 1234 15  # sends fixed temp/fan to the display for 15 s (hardware test)
+./target/debug/kalkan handshake     # Alpha Rev.1 (1.2): runs the HID handshake and prints the bytes
 ./target/debug/kalkan hwinfo        # (admin) readings from the original app's HWiNFO engine
 cargo test                          # protocol + sensor tests (regression vectors)
 ```
@@ -375,6 +414,11 @@ macOS build (needs the Xcode command line tools) and the app/disk image:
 - [x] **End-to-end sending validated on 1.3 hardware**: cooler at `1A86:484A`
       (COM3), `kalkan send 42 1234` showed 42 °C / 1234 RPM on the display. The
       display sends nothing back over serial. Cadence always 1 s.
+- [x] **Firmware 1.2 (Alpha Rev.1, experimental)**: USB HID `0416:1100`, seed
+      handshake and scrambled 64-byte frame, ported from a static analysis of
+      the official 1.2 software and checked against golden vectors. **Not yet
+      tested on real hardware**: run `kalkan list` and `kalkan handshake` and
+      report the result in an issue. See [`docs/v1.2/protocol.md`](docs/v1.2/protocol.md).
 - [x] **Dashboard sends to the display** with real sensors: opens the port (and
       reopens it if it drops) and sends temp/fan every 1 s. Validated on a Ryzen 7
       9800X3D with HVCI on (CPU Die average / CPUFANIN0).

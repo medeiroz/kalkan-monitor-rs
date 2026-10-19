@@ -6,7 +6,7 @@ software, so it is clear what applies to which cooler.
 | Folder | Firmware | Status | Contents |
 |--------|----------|--------|----------|
 | [`v1.3/`](v1.3/) | 1.3 (serial, 1 Mbaud, 5-byte frame) — Alpha Rev.2 and Delta V2 | Current, implemented | Reverse-engineered protocol ([EN](v1.3/protocol.md), [PT-BR](v1.3/protocol-PT.md)) |
-| [`v1.2/`](v1.2/) | 1.2 (USB HID `0416:1100`, handshake + scrambled 64-byte frame) — Alpha Rev.1 | Documented; experimental, not implemented in this app, untested on hardware | Reverse-engineered protocol ([EN](v1.2/protocol.md), [PT-BR](v1.2/protocol-PT.md)) |
+| [`v1.2/`](v1.2/) | 1.2 (USB HID `0416:1100`, handshake + scrambled 64-byte frame) — Alpha Rev.1 | Implemented; experimental, untested on hardware | Reverse-engineered protocol ([EN](v1.2/protocol.md), [PT-BR](v1.2/protocol-PT.md)) |
 
 Not sure which firmware your cooler uses? See "Troubleshooting / which version
 do I have" in either protocol document ([1.3](v1.3/protocol.md#troubleshooting--which-version-do-i-have),

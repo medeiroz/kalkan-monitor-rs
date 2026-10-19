@@ -3,10 +3,11 @@
 **English** | [Português (Brasil)](protocol-PT.md)
 
 > [!WARNING]
-> **Status: experimental / not yet implemented in this app / untested on
-> hardware.** Everything below comes from static analysis of the vendor
-> binary. No 1.2 cooler has been tested with it, and this repository does not
-> speak this protocol yet (it only implements [1.3](../v1.3/protocol.md)).
+> **Status: implemented in this app, experimental, untested on hardware.**
+> Everything below comes from static analysis of the vendor binary. The app
+> speaks this protocol (see [Rust port](#rust-port)), but no 1.2 cooler has
+> been tested with it yet. Reports are welcome: run `kalkan list` and
+> `kalkan handshake` and open an issue.
 
 Analyzed target: `Kalkan PC SmartMonitor DZ V1.2.exe`, the app used by **Alpha
 line Rev.1** coolers (the vendor says: units sold before Jan/2026; see
@@ -67,6 +68,8 @@ function addresses in the original binary.
 - `0416` is a generic Nuvoton vendor ID used by many unrelated devices, so a port
   should filter more strictly (e.g. by usage page / interface / report size once
   those are known from a real unit) instead of blindly opening the first match.
+  This app enumerates, keeps `0416:1100` only, opens each candidate by path and
+  only streams frames after its handshake succeeds (see [Rust port](#rust-port)).
 
 ### `isOpen()` — `FUN_1400017f0`
 
@@ -173,10 +176,64 @@ Regression vector (from the 1.2 repository's tests): seed `0x2A`, idx 1,
 
 ## Rust port
 
-**Not implemented in this app yet.** The earlier 1.2 repository has a Rust port
-of the handshake, frame and scrambler; bringing it here (behind the
-`Firmware::V1_2` selection) is planned, and the vectors above should be its
-tests.
+**Implemented, experimental, untested on hardware.** Ported from the earlier
+1.2 repository; the golden vectors above are its unit tests.
+
+| Piece | Where |
+|---|---|
+| Seed request, seed parsing, frame, scrambler, frame builder (pure, no I/O) | `crates/kalkan-core/src/v1_2/protocol.rs` |
+| HID enumeration, candidate filter, `HidTransport` (hidapi) | `crates/kalkan-core/src/v1_2/hid.rs` |
+| Handshake + send sequence, `V1_2Display` | `crates/kalkan-core/src/v1_2/display.rs` |
+| Firmware selection (1.3 serial first, then 1.2 HID) | `crates/kalkan-core/src/firmware.rs` (`find`, `open`) |
+
+How the app opens the display: firmware 1.3 always wins. HID is only
+enumerated when no 1.3 serial port is present; the `0416:1100` entries with a
+path are the candidates (vendor-defined usage pages `0xFF00+` first, then
+enumeration order). Each one is opened **by path** (`hid_open_path`) and
+handshaked; the first that answers is used. If a 1.3 port is found but fails to
+open, that error is shown; there is no fallback to 1.2.
+
+Implementation decisions (deviations from the vendor app are marked):
+
+- **Missing `0xE3` is a handshake failure** (deviation). The vendor app closes
+  the handle, uses seed 0 and still reports "open". Here no reply within
+  2000 ms, a reply without `0xE3` at index 0/1, or an I/O error during the
+  handshake is an error: nothing is streamed to a device that did not complete
+  the handshake (with a generic VID it may not even be a cooler). The UI retries
+  with backoff (0.9 s, 1.8 s, 3.6 s, then every 5 s).
+- **Handshake timeout** stays at the vendor's 2000 ms; it runs on the UI's
+  device worker thread, never on the UI thread.
+- **Read-back after each frame is kept but short** (deviation in timing). The
+  vendor blocks up to 2000 ms; this app reads 65 bytes with a **150 ms**
+  timeout and ignores the result (data, nothing or an error), so the 1 s cadence
+  holds even with a silent device. It is a constant (`READ_BACK`) plus
+  `V1_2Display::set_read_back`, so it can be turned off if hardware shows it is
+  not needed.
+- **Frame index restarts at 0 on every new handshake** (deviation). The vendor
+  keeps counting across reopens. The index is a `u8` that wraps at 256; the UI
+  preview shows it while sending.
+- **Seed restarts every frame**, as in the vendor (the scrambler takes it by
+  value); it only changes on a new handshake.
+- **Write error → new session**: the device is dropped and reopened, which runs
+  a new handshake (fresh seed, index 0). Unplug detection relies on the write
+  failing; the vendor instead re-enumerates before every frame (`isOpen`).
+- **Blocking writes** as in the vendor (`hid_set_nonblocking(dev, 0)`); byte 0
+  (`0x01`) goes to hidapi as the report ID, exactly like the vendor's
+  `hid_write` of 64 bytes.
+- **Only one program at a time.** Close the official software: on Windows HID
+  handles are shared, so two apps would interleave frames (with different
+  seeds); on macOS hidapi opens the device exclusively, so one of them fails to
+  open it.
+- **Linux**: the `.deb` ships a udev rule giving the logged-in user access to
+  the `hidraw` node (`TAG+="uaccess"`). A permission error explains the udev
+  fix (not the serial `dialout` group). **macOS**: no TCC permission is needed
+  for a vendor-defined HID device; the only caveat is the exclusive open above.
+
+Diagnostics for someone with a real unit: `kalkan list` (serial ports and
+`0416:1100` HID candidates), `kalkan handshake` (sends only the seed request and
+prints request, reply and parsed seed), `kalkan send [temp] [fan] [seconds]
+[usage]` (fixed values, prints each frame and any reply) and `kalkan hid` (every
+HID device).
 
 ## Hardware-dependent (open questions)
 
@@ -188,9 +245,9 @@ Only a real Rev.1 unit can answer these:
 - Does the device need the read-back after each write? Is there a minimum send
   interval?
 - What exactly does the old screen show (temperature only, as on Rev.2?)
-- Linux: `hidraw` permissions (a udev rule will likely be needed).
-- macOS: whether the device can be opened without a driver or special
-  entitlement.
+- Linux: does the shipped `hidraw` udev rule match the real device?
+- macOS: does the device open without a driver or special entitlement (it
+  should, as a vendor-defined HID device)?
 
 ## Troubleshooting / which version do I have
 
@@ -218,7 +275,8 @@ If the display **stays stuck at 88°**, the wrong version is installed:
 
 (If the display does not show the temperature and stays stuck at 88°, uninstall
 the current version and install the other one.) The vendor also says to install
-and run its software as Administrator. In this app, the same symptom on an Alpha
-means the cooler probably uses the other firmware: if `kalkan list` shows no
-1.3 port (`1F3A:0008` / `1A86:484A`), it is probably a Rev.1 / 1.2 unit, which
-is not supported yet.
+and run its software as Administrator. In this app, the same symptom means the
+display is not getting data it understands: close the official software and run
+`kalkan list`. A 1.3 port (`1F3A:0008` / `1A86:484A`) means Rev.2 / Delta V2; a
+`0416:1100` HID candidate means a Rev.1 / 1.2 unit, supported experimentally
+(`kalkan handshake` shows whether it answers).

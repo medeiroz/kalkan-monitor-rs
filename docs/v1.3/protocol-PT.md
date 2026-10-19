@@ -154,7 +154,8 @@ instalada:
 (O fabricante também pede para instalar e executar o software dele como
 Administrador.) Com este app: se o `kalkan list` não mostra nenhuma porta com
 `1F3A:0008` / `1A86:484A`, o cooler provavelmente é uma unidade Revisão 1
-(1.2), que ainda não é suportada.
+(1.2), suportada de forma experimental via USB HID (aparece no `kalkan list`
+como candidato HID `0416:1100`; veja [1.2](../v1.2/protocol-PT.md)).
 
 ## Nota: anti-UAC (fora do protocolo)
 

@@ -154,7 +154,8 @@ installed:
 (Uninstall the current version and install the other one; the vendor also asks
 to install and run its software as Administrator.) With this app: if
 `kalkan list` shows no port with `1F3A:0008` / `1A86:484A`, the cooler is
-probably a Rev.1 (1.2) unit, which is not supported yet.
+probably a Rev.1 (1.2) unit, supported experimentally over USB HID (it shows up
+in `kalkan list` as a `0416:1100` HID candidate; see [1.2](../v1.2/protocol.md)).
 
 ## Note: anti-UAC (outside the protocol)
 

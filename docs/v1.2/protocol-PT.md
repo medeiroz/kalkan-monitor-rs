@@ -3,10 +3,11 @@
 [English](protocol.md) | **Português (Brasil)**
 
 > [!WARNING]
-> **Status: experimental / ainda não implementado neste app / não testado em
-> hardware.** Tudo abaixo vem de análise estática do binário do fabricante.
-> Nenhum cooler 1.2 foi testado com isso, e este repositório ainda não fala
-> esse protocolo (só implementa a [1.3](../v1.3/protocol-PT.md)).
+> **Status: implementado neste app, experimental, não testado em hardware.**
+> Tudo abaixo vem de análise estática do binário do fabricante. O app fala este
+> protocolo (veja [Porte em Rust](#porte-em-rust)), mas nenhum cooler 1.2 foi
+> testado com ele ainda. Relatos são bem-vindos: rode `kalkan list` e
+> `kalkan handshake` e abra uma issue.
 
 Alvo analisado: `Kalkan PC SmartMonitor DZ V1.2.exe`, o app usado pelos coolers
 da **linha Alpha Revisão 1** (segundo o fabricante: unidades vendidas antes de
@@ -68,7 +69,10 @@ Layout do objeto `HidDeviceController` (offsets a partir do `this`):
 - `0416` é um vendor ID genérico da Nuvoton, usado por muitos dispositivos sem
   relação entre si; um porte deve filtrar de forma mais estrita (por exemplo por
   usage page / interface / tamanho de report, quando forem conhecidos numa
-  unidade real) em vez de abrir cegamente o primeiro que casar.
+  unidade real) em vez de abrir cegamente o primeiro que casar. Este app
+  enumera, fica só com `0416:1100`, abre cada candidato pelo caminho (path) e só
+  envia frames depois que o handshake dele dá certo (veja
+  [Porte em Rust](#porte-em-rust)).
 
 ### `isOpen()` — `FUN_1400017f0`
 
@@ -176,10 +180,68 @@ Vetor de regressão (dos testes do repositório 1.2): seed `0x2A`, idx 1,
 
 ## Porte em Rust
 
-**Ainda não implementado neste app.** O repositório 1.2 anterior tem um porte
-em Rust do handshake, do frame e do scrambler; trazê-lo para cá (atrás da
-seleção `Firmware::V1_2`) está planejado, e os vetores acima devem ser os testes
-dele.
+**Implementado, experimental, não testado em hardware.** Portado do
+repositório 1.2 anterior; os vetores de referência acima são os testes
+unitários dele.
+
+| Parte | Onde |
+|---|---|
+| Pacote-semente, leitura da seed, frame, scrambler, builder de frames (puro, sem E/S) | `crates/kalkan-core/src/v1_2/protocol.rs` |
+| Enumeração HID, filtro de candidatos, `HidTransport` (hidapi) | `crates/kalkan-core/src/v1_2/hid.rs` |
+| Sequência handshake + envio, `V1_2Display` | `crates/kalkan-core/src/v1_2/display.rs` |
+| Seleção de firmware (1.3 serial primeiro, depois 1.2 HID) | `crates/kalkan-core/src/firmware.rs` (`find`, `open`) |
+
+Como o app abre o display: o firmware 1.3 sempre tem prioridade. O HID só é
+enumerado quando não há porta serial 1.3; as entradas `0416:1100` com caminho
+são os candidatos (usage pages do fabricante `0xFF00+` primeiro, depois a ordem
+da enumeração). Cada um é aberto **pelo caminho** (`hid_open_path`) e passa
+pelo handshake; o primeiro que responde é usado. Se uma porta 1.3 é encontrada
+mas falha ao abrir, esse erro é mostrado; não há fallback para a 1.2.
+
+Decisões de implementação (os desvios em relação ao app do fabricante estão
+marcados):
+
+- **Ausência do `0xE3` é falha de handshake** (desvio). O app do fabricante
+  fecha o handle, usa seed 0 e continua dizendo "aberto". Aqui, nenhuma
+  resposta em 2000 ms, uma resposta sem `0xE3` no índice 0/1 ou um erro de E/S
+  no handshake é um erro: nada é enviado a um dispositivo que não completou o
+  handshake (com um VID genérico, ele pode nem ser um cooler). A UI tenta de
+  novo com backoff (0,9 s, 1,8 s, 3,6 s e depois a cada 5 s).
+- **Timeout do handshake** continua nos 2000 ms do fabricante; roda na thread
+  de dispositivo da UI, nunca na thread da UI.
+- **A leitura de volta após cada frame foi mantida, mas curta** (desvio de
+  tempo). O fabricante bloqueia até 2000 ms; este app lê 65 bytes com timeout
+  de **150 ms** e ignora o resultado (dados, nada ou erro), então a cadência de
+  1 s se mantém mesmo com um dispositivo mudo. É uma constante (`READ_BACK`)
+  mais `V1_2Display::set_read_back`, para desligar se o hardware mostrar que não
+  é necessária.
+- **O índice do frame volta a 0 a cada novo handshake** (desvio). O fabricante
+  continua contando entre reaberturas. O índice é um `u8` que dá a volta em
+  256; o preview da UI mostra o índice durante o envio.
+- **A seed recomeça a cada frame**, como no fabricante (o scrambler a recebe por
+  valor); ela só muda num novo handshake.
+- **Erro de escrita → nova sessão**: o dispositivo é descartado e reaberto, o
+  que faz um novo handshake (seed nova, índice 0). A detecção de desconexão
+  depende da escrita falhar; o fabricante, em vez disso, reenumera antes de cada
+  frame (`isOpen`).
+- **Escritas bloqueantes** como no fabricante (`hid_set_nonblocking(dev, 0)`);
+  o byte 0 (`0x01`) vai para o hidapi como report ID, exatamente como o
+  `hid_write` de 64 bytes do fabricante.
+- **Um programa por vez.** Feche o software oficial: no Windows os handles HID
+  são compartilhados, então dois apps intercalariam frames (com seeds
+  diferentes); no macOS o hidapi abre o dispositivo em modo exclusivo, então um
+  dos dois não consegue abrir.
+- **Linux**: o `.deb` traz uma regra udev que dá ao usuário logado acesso ao nó
+  `hidraw` (`TAG+="uaccess"`). Um erro de permissão explica a correção pelo
+  udev (e não o grupo `dialout` da serial). **macOS**: não é preciso permissão
+  TCC para um dispositivo HID do fabricante; o único cuidado é a abertura
+  exclusiva acima.
+
+Diagnóstico para quem tem uma unidade real: `kalkan list` (portas seriais e
+candidatos HID `0416:1100`), `kalkan handshake` (envia só o pacote-semente e
+mostra o pedido, a resposta e a seed lida), `kalkan send [temp] [fan]
+[segundos] [uso]` (valores fixos, mostra cada frame e qualquer resposta) e
+`kalkan hid` (todos os dispositivos HID).
 
 ## Dependente de hardware (questões em aberto)
 
@@ -191,8 +253,9 @@ Só uma unidade Revisão 1 real responde:
 - O dispositivo precisa da leitura de volta após cada escrita? Existe intervalo
   mínimo entre envios?
 - O que exatamente a tela antiga mostra (só temperatura, como na Revisão 2?)
-- Linux: permissões de `hidraw` (provavelmente será preciso uma regra udev).
-- macOS: se o dispositivo abre sem driver ou permissão especial.
+- Linux: a regra udev de `hidraw` incluída casa com o dispositivo real?
+- macOS: o dispositivo abre sem driver ou permissão especial (deveria, por ser
+  um dispositivo HID do fabricante)?
 
 ## Solução de problemas / qual versão eu tenho
 
@@ -216,7 +279,8 @@ Se o display **fica travado em 88°**, a versão errada está instalada:
 > versão disponível nesta pasta."
 
 O fabricante também pede para instalar e executar o software dele como
-Administrador. Neste app, o mesmo sintoma num Alpha indica que o cooler
-provavelmente usa o outro firmware: se o `kalkan list` não mostra nenhuma porta
-1.3 (`1F3A:0008` / `1A86:484A`), provavelmente é uma unidade Revisão 1 / 1.2,
-que ainda não é suportada.
+Administrador. Neste app, o mesmo sintoma indica que o display não está
+recebendo dados que entende: feche o software oficial e rode `kalkan list`. Uma
+porta 1.3 (`1F3A:0008` / `1A86:484A`) indica Revisão 2 / Delta V2; um candidato
+HID `0416:1100` indica uma unidade Revisão 1 / 1.2, suportada de forma
+experimental (o `kalkan handshake` mostra se ela responde).
