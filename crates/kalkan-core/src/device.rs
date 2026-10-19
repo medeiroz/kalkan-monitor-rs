@@ -34,6 +34,11 @@ impl SerialDeviceInfo {
             _ => false,
         }
     }
+
+    /// The supported-display profile (firmware/bus) this port matches, if any.
+    pub fn profile(&self) -> Option<&'static crate::Profile> {
+        crate::profile_for(self.vendor_id?, self.product_id?)
+    }
 }
 
 /// Lists all serial ports on the system, with VID/PID when USB.

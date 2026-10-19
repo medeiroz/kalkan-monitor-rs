@@ -22,12 +22,32 @@ impl fmt::Display for Firmware {
     }
 }
 
+impl Firmware {
+    /// Which products use this firmware, in user-friendly words.
+    pub fn models_hint(&self) -> &'static str {
+        match self {
+            Firmware::V1_2 => "Alpha (purchased before Jan/2026) \u{2014} experimental",
+            Firmware::V1_3 => "Alpha (purchased from Jan/2026) or Delta V2",
+        }
+    }
+}
+
 /// How a firmware reaches the device.
 #[allow(dead_code)] // `Hid` goes with firmware 1.2
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Bus {
     Serial,
     Hid,
+}
+
+impl Bus {
+    /// Short name for the UI/CLI.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Bus::Serial => "USB serial",
+            Bus::Hid => "USB HID",
+        }
+    }
 }
 
 /// A known display: its firmware, bus and USB IDs.
@@ -51,6 +71,11 @@ static PROFILES: [Profile; 2] = [
 /// Every supported display, in the order they are tried.
 pub fn profiles() -> &'static [Profile] {
     &PROFILES
+}
+
+/// The profile whose USB IDs match `vid:pid`, if any.
+pub fn profile_for(vid: u16, pid: u16) -> Option<&'static Profile> {
+    profiles().iter().find(|p| (p.vid, p.pid) == (vid, pid))
 }
 
 /// The three values shown on the display.
@@ -115,6 +140,16 @@ mod tests {
         let ids: Vec<_> = profiles().iter().map(|p| (p.vid, p.pid)).collect();
         assert_eq!(ids, crate::v1_3::IDS);
         assert!(profiles().iter().all(|p| p.firmware == Firmware::V1_3 && p.bus == Bus::Serial));
+    }
+
+    #[test]
+    fn models_hint_and_profile_lookup() {
+        assert_eq!(Firmware::V1_3.models_hint(), "Alpha (purchased from Jan/2026) or Delta V2");
+        assert!(Firmware::V1_2.models_hint().contains("experimental"));
+        let (v, p) = crate::v1_3::IDS[0];
+        assert_eq!(profile_for(v, p).map(|p| p.firmware), Some(Firmware::V1_3));
+        assert!(profile_for(0xffff, 0xffff).is_none());
+        assert_eq!(Bus::Serial.label(), "USB serial");
     }
 
     #[test]

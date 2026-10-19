@@ -43,12 +43,13 @@ fn list() -> Result<()> {
     println!("{} serial port(s):\n", ports.len());
     for p in &ports {
         let star = if p.is_display() { "★ " } else { "  " };
+        let fw = p.profile().map(|pr| format!("  ★ firmware {}", pr.firmware)).unwrap_or_default();
         let ids = match (p.vendor_id, p.product_id) {
             (Some(v), Some(pid)) => format!("{v:04x}:{pid:04x}"),
             _ => "----:----".into(),
         };
         println!(
-            "{star}{:<12} {ids}  {} — {}",
+            "{star}{:<12} {ids}  {} — {}{fw}",
             p.port_name,
             p.manufacturer.as_deref().unwrap_or("?"),
             p.product.as_deref().unwrap_or("?"),

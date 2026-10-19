@@ -513,6 +513,10 @@ export component AppWindow inherits Window {
     in property <ConnState> conn-state: ConnState.disconnected;
     in property <string> device-label: "No device";
     in property <string> device-detail: "";
+    // Firmware of the detected display (empty = none detected).
+    in property <string> firmware-label: "";   // "Firmware 1.3 · USB serial · COM5 · 1f3a:0008"
+    in property <string> firmware-hint: "";    // friendly model text
+    in property <string> firmware-short: "";   // "Firmware 1.3"
     in property <string> hid-error: "";
 
     // ---- display config ----
@@ -573,12 +577,18 @@ export component AppWindow inherits Window {
 
                 Rectangle { height: 1px; background: Palette.line; }
                 Rectangle {
-                    height: 48px;
-                    HorizontalLayout {
-                        alignment: start;
-                        VerticalLayout {
-                            alignment: center;
+                    height: (root.conn-state == ConnState.connected && root.firmware-short != "") ? 68px : 48px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            alignment: start;
                             StatusPill { state: root.conn-state; }
+                        }
+                        if root.conn-state == ConnState.connected && root.firmware-short != "" : Text {
+                            text: root.firmware-short;
+                            color: Palette.faint; font-size: 11px; font-weight: 600;
+                            overflow: elide;
                         }
                     }
                     TouchArea { mouse-cursor: pointer; clicked => { root.active-page = 2; } }
@@ -796,6 +806,8 @@ export component AppWindow inherits Window {
                             }
                             Text { text: root.device-label; color: Palette.ink; font-size: 16px; font-weight: 800; overflow: elide; }
                             Text { text: root.device-detail; color: Palette.muted; font-size: 13px; font-weight: 600; wrap: word-wrap; }
+                            if root.firmware-label != "" : Text { text: root.firmware-label; color: Palette.muted; font-size: 13px; font-weight: 600; wrap: word-wrap; }
+                            if root.firmware-hint != "" : Text { text: root.firmware-hint; color: Palette.faint; font-size: 13px; font-weight: 500; wrap: word-wrap; }
                         }
                     }
                     if root.hid-error != "" : Rectangle {
@@ -821,7 +833,7 @@ export component AppWindow inherits Window {
                             spacing: 6px;
                             Text { text: "How to connect"; color: Palette.ink; font-size: 15px; font-weight: 800; }
                             Text {
-                                text: "Plug the watercooler (Kalkan Alpha 240, 360 or 360-W, units purchased from Jan/2026; or Delta V2 240 or 360) into USB and run `kalkan list`: the port marked with ★ is the cooler (VID/PID 1F3A:0008 or 1A86:484A). The app opens the serial port and starts sending data to the display.";
+                                text: "Plug the watercooler (Kalkan Alpha 240, 360 or 360-W, units purchased from Jan/2026; or Delta V2 240 or 360) into USB and run `kalkan list`: the port marked with ★ is the cooler. Supported firmware: 1.3 (VID/PID 1F3A:0008 or 1A86:484A). The app opens the serial port and starts sending data to the display.";
                                 color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
                             }
                         }

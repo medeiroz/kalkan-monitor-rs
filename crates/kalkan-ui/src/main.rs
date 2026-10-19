@@ -460,6 +460,21 @@ fn main() -> anyhow::Result<()> {
                     )
                     .into(),
                 );
+                if let Some(pr) = d.profile() {
+                    ui.set_firmware_label(
+                        format!(
+                            "Firmware {} · {} · {} · {:04x}:{:04x}",
+                            pr.firmware,
+                            pr.bus.label(),
+                            d.port_name,
+                            pr.vid,
+                            pr.pid,
+                        )
+                        .into(),
+                    );
+                    ui.set_firmware_hint(pr.firmware.models_hint().into());
+                    ui.set_firmware_short(format!("Firmware {}", pr.firmware).into());
+                }
                 ui.set_conn_state(ConnState::Disconnected); // Connected only after the port is opened
             } else {
                 ui.set_device_label("No display recognized".into());

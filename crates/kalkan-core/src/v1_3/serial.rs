@@ -43,7 +43,7 @@ fn pick_display_port(ports: &[SerialDeviceInfo]) -> Option<String> {
 pub fn open_display() -> Result<SerialTransport> {
     let port = find_display_port()?.ok_or_else(|| {
         anyhow!(
-            "no Kalkan 1.3 display found (looking for VID:PID {}){}",
+            "no supported Kalkan display found (firmware 1.3; looking for VID:PID {}){}",
             IDS.iter()
                 .map(|(v, p)| format!("{v:04x}:{p:04x}"))
                 .collect::<Vec<_>>()
