@@ -12,11 +12,13 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use kalkan_core::{
     available_serial_ports, default_source, fan_options, load_text, select_fan, select_temp, temp_options,
-    CoolerModel, FanSource, Fields, MaxTracker, Reading, Settings, same_layout, SourceOption, TempSource,
+    CoolerModel, FanSource, Fields, Firmware, MaxTracker, Reading, Settings, same_layout, SourceOption, TempSource,
 };
 use slint::{ComponentHandle, Model, SharedString, Timer, VecModel};
 
@@ -284,6 +286,38 @@ fn display_fields(m: &Mapping, r: &Reading) -> Fields {
     Fields { temp, fan, load }
 }
 
+/// Short firmware text for the sidebar ("Firmware 1.3").
+fn firmware_short(fw: Firmware) -> String {
+    match fw {
+        Firmware::V1_2 => format!("Firmware {fw} · experimental"),
+        Firmware::V1_3 => format!("Firmware {fw}"),
+    }
+}
+
+/// Fills the firmware texts (sidebar, device card) for `fw`.
+fn show_firmware(ui: &AppWindow, fw: Firmware, label: String) {
+    ui.set_firmware_label(label.into());
+    ui.set_firmware_hint(fw.models_hint().into());
+    ui.set_firmware_short(firmware_short(fw).into());
+    ui.set_firmware_v1_2(fw == Firmware::V1_2);
+}
+
+/// Describes a firmware 1.2 HID candidate found at startup (enumeration only:
+/// the device is opened, and its handshake run, on the worker thread).
+fn show_hid_device(ui: &AppWindow, d: &kalkan_core::v1_2::HidDeviceInfo) {
+    ui.set_device_label(d.product.clone().unwrap_or_else(|| "Kalkan SmartMonitor 1.2".into()).into());
+    ui.set_device_detail(
+        format!("VID {:#06x}  ·  PID {:#06x}  ·  HID", d.vendor_id, d.product_id).into(),
+    );
+    if let Some(pr) = d.profile() {
+        show_firmware(
+            ui,
+            pr.firmware,
+            format!("Firmware {} · {} · {:04x}:{:04x}", pr.firmware, pr.bus.label(), pr.vid, pr.pid),
+        );
+    }
+}
+
 /// Shows a status reported by the device worker (runs on the UI thread).
 fn apply_status(ui: &AppWindow, s: &worker::Status) {
     ui.set_conn_state(match s.conn {
@@ -293,6 +327,17 @@ fn apply_status(ui: &AppWindow, s: &worker::Status) {
     });
     if let Some(e) = &s.error {
         ui.set_hid_error(e.as_str().into());
+    }
+    // The device actually opened. When the startup discovery already
+    // described this firmware its (more detailed) texts stay; otherwise (the
+    // cooler was plugged in after launch, or it is another firmware) they come
+    // from the connected device.
+    if let Some(o) = &s.opened {
+        if ui.get_firmware_short().as_str() != firmware_short(o.firmware) {
+            ui.set_device_label(format!("Kalkan SmartMonitor {}", o.firmware).into());
+            ui.set_device_detail(o.description.as_str().into());
+            show_firmware(ui, o.firmware, format!("Firmware {} · {}", o.firmware, o.description));
+        }
     }
 }
 
@@ -386,7 +431,9 @@ fn main() -> anyhow::Result<()> {
     // The temperature and fan lists are filled from the sensors as they appear
     // (see `refresh_options`), as is the fixed usage list.
 
-    // Best-effort discovery of the 1.3 display on the serial ports (VID/PID).
+    // Best-effort discovery of the display: the 1.3 one on the serial ports
+    // (VID/PID), else a 1.2 HID candidate (enumerated only when no 1.3 port
+    // exists, like `kalkan_core::find`).
     match available_serial_ports() {
         Ok(ports) => {
             if let Some(d) = ports.iter().find(|p| p.is_display()) {
@@ -415,9 +462,14 @@ fn main() -> anyhow::Result<()> {
                         .into(),
                     );
                     ui.set_firmware_hint(pr.firmware.models_hint().into());
-                    ui.set_firmware_short(format!("Firmware {}", pr.firmware).into());
+                    ui.set_firmware_short(firmware_short(pr.firmware).into());
                 }
                 ui.set_conn_state(ConnState::Disconnected); // Connected only after the port is opened
+            } else if let Some(d) =
+                kalkan_core::v1_2::find_candidates().ok().and_then(|c| c.into_iter().next())
+            {
+                show_hid_device(&ui, &d);
+                ui.set_conn_state(ConnState::Disconnected); // Connected only after the handshake
             } else {
                 ui.set_device_label("No display recognized".into());
                 ui.set_device_detail("Plug in the cooler and run `kalkan list`".into());
@@ -530,9 +582,18 @@ fn main() -> anyhow::Result<()> {
         // The device lives on its own thread, so blocking port I/O stays out of
         // this timer: only plain values go over, and results come back through
         // a weak handle, applied on the UI thread.
+        // Frame counter of the last frame the device worker sent, for firmware
+        // that has one (1.2); -1 when there is none (1.3, or not connected) and
+        // the preview keeps its own counter.
+        let device_index = Arc::new(AtomicI32::new(-1));
         let device = {
-            let ui_w = ui.as_weak();
+            let (ui_w, index) = (ui.as_weak(), device_index.clone());
             worker::Worker::spawn(move |status| {
+                let i = match (status.conn, status.index) {
+                    (worker::Conn::Connected, Some(i)) => i as i32,
+                    _ => -1,
+                };
+                index.store(i, Ordering::Relaxed);
                 let _ = ui_w.upgrade_in_event_loop(move |ui| apply_status(&ui, &status));
             })
         };
@@ -544,6 +605,15 @@ fn main() -> anyhow::Result<()> {
                 *last.borrow_mut() = reading.clone();
                 mapping.borrow_mut().max.update(&reading);
                 let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
+                // The device's own counter (1.2, from `Sent.index`) when it has one.
+                // Kept in `frame` too, so a source change redraws the same index.
+                let fi = match device_index.load(Ordering::Relaxed) {
+                    -1 => fi,
+                    i => {
+                        *frame.borrow_mut() = i;
+                        i
+                    }
+                };
                 if let Some(ui) = ui_w.upgrade() {
                     refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading);
                     device.push(display_fields(&mapping.borrow(), &reading));

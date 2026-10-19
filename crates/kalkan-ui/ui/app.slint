@@ -215,6 +215,8 @@ component DisplayPreview inherits Rectangle {
     // 0 = Alpha (temperature only), 1 = Delta V2 (temperature + fan speed)
     in property <int> model: 0;
     in property <int> frame-index;
+    // Firmware 1.2 frames carry an index: shown in the caption while sending.
+    in property <bool> show-index: false;
     in property <bool> sending;
 
     // Round screen: square, capped at 240px and centered in the column.
@@ -320,7 +322,7 @@ component DisplayPreview inherits Rectangle {
     Text {
         y: root.dia + 8px;
         width: root.width;
-        text: root.sending ? "● Sending" : "○ Offline preview";
+        text: root.sending ? (root.show-index ? "● Sending · frame #" + root.frame-index : "● Sending") : "○ Offline preview";
         color: root.sending ? Palette.teal : Palette.faint;
         font-size: 12px;
         font-weight: 700;
@@ -553,6 +555,28 @@ component ElevationWarning inherits Rectangle {
     }
 }
 
+// Firmware 1.2 (Alpha Rev.1) support is experimental: shown on the Device page.
+component ExperimentalNote inherits Rectangle {
+    min-height: 52px;
+    background: Palette.warn-weak;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Palette.warn.with-alpha(0.4);
+    VerticalLayout {
+        padding: 14px;
+        padding-left: 16px;
+        spacing: 4px;
+        Text {
+            text: "Firmware 1.2 (Alpha Rev.1) support is experimental and not yet tested on real hardware.";
+            color: Palette.warn; font-size: 13px; font-weight: 700; wrap: word-wrap;
+        }
+        Text {
+            text: "Close the official Kalkan SmartMonitor software first: two programs talking to the display at once interleave their frames (Windows) or block each other (macOS opens it exclusively). Reports are welcome: run `kalkan list` and `kalkan handshake` and open an issue.";
+            color: Palette.warn; font-size: 13px; font-weight: 600; wrap: word-wrap;
+        }
+    }
+}
+
 component Toggle inherits Rectangle {
     in-out property <bool> checked;
     callback toggled(bool);
@@ -623,6 +647,7 @@ export component AppWindow inherits Window {
     in property <string> firmware-label: "";   // "Firmware 1.3 · USB serial · COM5 · 1f3a:0008"
     in property <string> firmware-hint: "";    // friendly model text
     in property <string> firmware-short: "";   // "Firmware 1.3"
+    in property <bool> firmware-v1-2: false;   // detected/connected display speaks firmware 1.2
     in property <string> hid-error: "";
     // Windows only: the UAC prompt was declined, so the app runs degraded.
     in property <bool> not-elevated: false;
@@ -867,7 +892,9 @@ export component AppWindow inherits Window {
                             padding: 24px;
                             spacing: 18px;
                             Text {
-                                text: "Choose the source for each field sent to the cooler. Alpha models (240, 360, 360-W) show only the temperature; the other fields are still sent to the device.";
+                                text: root.firmware-v1-2
+                                    ? "Choose the source for each field sent to the cooler. Firmware 1.2 (Alpha Rev.1) frames carry the temperature, the RPM and the usage (%), plus a frame index; what the Rev.1 screen shows is not verified yet."
+                                    : "Choose the source for each field sent to the cooler. Alpha models (240, 360, 360-W) show only the temperature; the other fields are still sent to the device.";
                                 color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
                             }
                             SlotEditor {
@@ -913,9 +940,12 @@ export component AppWindow inherits Window {
                             model: root.model-index;
                             temp: root.prev-temp; load: root.prev-load; fan: root.prev-fan;
                             frame-index: root.prev-frame-index; sending: root.prev-sending;
+                            show-index: root.firmware-v1-2;
                         }
                         Text {
-                            text: root.model-index == 1
+                            text: root.firmware-v1-2 && root.model-index == 0
+                                ? "Alpha Rev.1 (firmware 1.2) preview: this reuses the Alpha preview; what the Rev.1 screen really shows is unverified. Temperature, RPM and usage are all sent in every frame."
+                                : root.model-index == 1
                                 ? "Delta V2 preview: the round display shows the temperature and the fan speed. The model can't be detected, so pick yours."
                                 : "Alpha preview: round display showing only the temperature. RPM and usage are still sent but not displayed. The model can't be detected, so pick yours.";
                             color: Palette.faint; font-size: 12px; font-weight: 500; wrap: word-wrap;
@@ -948,6 +978,7 @@ export component AppWindow inherits Window {
                             if root.firmware-hint != "" : Text { text: root.firmware-hint; color: Palette.faint; font-size: 13px; font-weight: 500; wrap: word-wrap; }
                         }
                     }
+                    if root.firmware-v1-2 : ExperimentalNote { }
                     if root.not-elevated : ElevationWarning { }
                     if root.hid-error != "" : Rectangle {
                         min-height: 52px;
@@ -972,7 +1003,7 @@ export component AppWindow inherits Window {
                             spacing: 6px;
                             Text { text: "How to connect"; color: Palette.ink; font-size: 15px; font-weight: 800; }
                             Text {
-                                text: "Plug the watercooler (Kalkan Alpha 240, 360 or 360-W, Alpha Rev.2 units purchased from Jan/2026; or Delta V2 240 or 360) into USB and run `kalkan list`: the port marked with ★ is the cooler. Supported firmware: 1.3 (VID/PID 1F3A:0008 or 1A86:484A). The app opens the serial port and starts sending data to the display. If the cooler display stays stuck at 88°, you probably have an older revision (Rev.1), which uses a different protocol that isn't supported yet.";
+                                text: "Plug the watercooler (Kalkan Alpha 240, 360 or 360-W, Alpha Rev.2 units purchased from Jan/2026; or Delta V2 240 or 360) into USB and run `kalkan list`: the port marked with ★ is the cooler. Supported firmware: 1.3 (VID/PID 1F3A:0008 or 1A86:484A, USB serial) and, experimentally, 1.2 for Alpha Rev.1 units sold before Jan/2026 (USB HID 0416:1100). The app finds the cooler by itself and starts sending data to the display. If the cooler display stays stuck at 88°, it is not getting data it understands: close the official Kalkan software and check that `kalkan list` marks the cooler.";
                                 color: Palette.muted; font-size: 13px; font-weight: 500; wrap: word-wrap;
                             }
                         }

@@ -10,7 +10,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use kalkan_core::{Display, Fields};
+use kalkan_core::{Display, Fields, Firmware};
 
 /// Minimum time between attempts to open an absent display (the UI pushes one
 /// value per second, so this means one attempt per tick, as before).
@@ -45,6 +45,24 @@ pub struct Status {
     pub conn: Conn,
     /// New error text (`""` clears it); `None` leaves the current one.
     pub error: Option<String>,
+    /// Set on the step that opened the device: which firmware it speaks, so
+    /// the UI can describe a cooler plugged in after launch.
+    pub opened: Option<Opened>,
+    /// Frame counter of the frame just sent, for firmware that has one (1.2).
+    pub index: Option<u8>,
+}
+
+/// The display the worker just opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Opened {
+    pub firmware: Firmware,
+    pub description: String,
+}
+
+impl Status {
+    fn new(conn: Conn, error: Option<String>) -> Self {
+        Self { conn, error, opened: None, index: None }
+    }
 }
 
 /// The worker's decision logic, free of threads and clocks.
@@ -88,16 +106,22 @@ impl Link {
                     } else {
                         self.handshake_fails = 0;
                     }
-                    return Some(Status { conn: Conn::Disconnected, error: Some(format!("{e}")) });
+                    return Some(Status::new(Conn::Disconnected, Some(format!("{e}"))));
                 }
             }
         }
         let device = self.device.as_mut()?;
         match device.send(f) {
-            Ok(_) => Some(Status { conn: Conn::Connected, error: opened.then(String::new) }),
+            Ok(sent) => Some(Status {
+                conn: Conn::Connected,
+                error: opened.then(String::new),
+                opened: opened
+                    .then(|| Opened { firmware: device.firmware(), description: device.description() }),
+                index: sent.index,
+            }),
             Err(e) => {
                 self.device = None;
-                Some(Status { conn: Conn::Error, error: Some(format!("Failed to send: {e}")) })
+                Some(Status::new(Conn::Error, Some(format!("Failed to send: {e}"))))
             }
         }
     }
@@ -195,7 +219,7 @@ impl Drop for Worker {
 mod tests {
     use super::*;
     use anyhow::anyhow;
-    use kalkan_core::{Firmware, Sent};
+    use kalkan_core::Sent;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst};
 
     /// Display that records what it is sent and can fail on demand.
@@ -257,6 +281,51 @@ mod tests {
         Fields { temp, fan: 1000, load: 0 }
     }
 
+    /// The connection and error parts of a status.
+    fn ce(s: &Status) -> (Conn, Option<String>) {
+        (s.conn, s.error.clone())
+    }
+
+    /// A 1.2-like display: counts frames with a wrapping `u8`.
+    struct Counting(u8);
+
+    impl Display for Counting {
+        fn firmware(&self) -> Firmware {
+            Firmware::V1_2
+        }
+        fn description(&self) -> String {
+            "hid".into()
+        }
+        fn send(&mut self, _: &Fields) -> Result<Sent> {
+            let i = self.0;
+            self.0 = i.wrapping_add(1);
+            Ok(Sent { raw: vec![], wire: vec![], index: Some(i) })
+        }
+    }
+
+    #[test]
+    fn reports_the_opened_firmware_once_and_the_frame_index() {
+        let mut open = || -> Result<Box<dyn Display>> { Ok(Box::new(Counting(254))) };
+        let mut link = Link::default();
+        let t0 = Instant::now();
+        let s = link.step(&f(1), t0, &mut open).unwrap();
+        assert_eq!(s.opened, Some(Opened { firmware: Firmware::V1_2, description: "hid".into() }));
+        assert_eq!(s.index, Some(254));
+        let s = link.step(&f(1), t0, &mut open).unwrap();
+        assert_eq!((s.opened, s.index), (None, Some(255)));
+        assert_eq!(link.step(&f(1), t0, &mut open).unwrap().index, Some(0));
+    }
+
+    #[test]
+    fn a_1_3_display_reports_no_index() {
+        let rig = Rig::new();
+        let mut open = || rig.open();
+        let mut link = Link::default();
+        let s = link.step(&f(1), Instant::now(), &mut open).unwrap();
+        assert_eq!(s.opened.map(|o| o.firmware), Some(Firmware::V1_3));
+        assert_eq!(s.index, None);
+    }
+
     #[test]
     fn opens_sends_and_clears_the_error_once() {
         let rig = Rig::new();
@@ -264,10 +333,10 @@ mod tests {
         let mut link = Link::default();
         let t0 = Instant::now();
         let s = link.step(&f(40), t0, &mut open).unwrap();
-        assert_eq!(s, Status { conn: Conn::Connected, error: Some(String::new()) });
+        assert_eq!(ce(&s), (Conn::Connected, Some(String::new())));
         // Already open: no error change, no new open.
         let s = link.step(&f(41), t0 + Duration::from_secs(1), &mut open).unwrap();
-        assert_eq!(s, Status { conn: Conn::Connected, error: None });
+        assert_eq!(ce(&s), (Conn::Connected, None));
         assert_eq!(rig.opens.load(SeqCst), 1);
         assert_eq!(rig.sent(), vec![f(40), f(41)]);
     }
@@ -280,7 +349,7 @@ mod tests {
         let mut link = Link::default();
         let t0 = Instant::now();
         let s = link.step(&f(1), t0, &mut open).unwrap();
-        assert_eq!(s, Status { conn: Conn::Disconnected, error: Some("no display".into()) });
+        assert_eq!(ce(&s), (Conn::Disconnected, Some("no display".into())));
         // Too soon: skipped, nothing reported.
         assert_eq!(link.step(&f(2), t0 + Duration::from_millis(300), &mut open), None);
         assert_eq!(rig.opens.load(SeqCst), 1);
@@ -301,10 +370,10 @@ mod tests {
         link.step(&f(1), t0, &mut open).unwrap();
         rig.fail.store(true, SeqCst);
         let s = link.step(&f(2), t0 + Duration::from_secs(1), &mut open).unwrap();
-        assert_eq!(s, Status { conn: Conn::Error, error: Some("Failed to send: gone".into()) });
+        assert_eq!(ce(&s), (Conn::Error, Some("Failed to send: gone".into())));
         rig.fail.store(false, SeqCst);
         let s = link.step(&f(3), t0 + Duration::from_secs(2), &mut open).unwrap();
-        assert_eq!(s, Status { conn: Conn::Connected, error: Some(String::new()) });
+        assert_eq!(ce(&s), (Conn::Connected, Some(String::new())));
         assert_eq!(rig.opens.load(SeqCst), 2);
     }
 
@@ -391,7 +460,7 @@ mod tests {
         );
         w.push(f(10));
         let s = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(s, Status { conn: Conn::Connected, error: Some(String::new()) });
+        assert_eq!(ce(&s), (Conn::Connected, Some(String::new())));
         assert_eq!(rig.sent(), vec![f(10)]);
         drop(w);
         // The thread ends and drops the sender.
