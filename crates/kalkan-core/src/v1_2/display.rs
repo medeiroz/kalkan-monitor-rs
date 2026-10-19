@@ -105,12 +105,14 @@ pub struct V1_2Display<T: Transport> {
     /// `None` until a handshake succeeds (and again after a write error).
     builder: Option<Builder>,
     read_back: bool,
+    /// What the last read-back returned (empty: nothing / timeout / error).
+    last_reply: Vec<u8>,
 }
 
 impl<T: Transport> V1_2Display<T> {
     /// Takes an open transport and performs the handshake.
     pub fn open(transport: T) -> Result<Self> {
-        let mut d = Self { transport, builder: None, read_back: READ_BACK };
+        let mut d = Self { transport, builder: None, read_back: READ_BACK, last_reply: Vec::new() };
         d.handshake()?;
         Ok(d)
     }
@@ -131,6 +133,12 @@ impl<T: Transport> V1_2Display<T> {
     /// Turns the read-back after each frame on or off (default [`READ_BACK`]).
     pub fn set_read_back(&mut self, on: bool) {
         self.read_back = on;
+    }
+
+    /// The reply read back after the last frame (diagnostics; empty when the
+    /// device said nothing within [`READ_BACK_TIMEOUT`] or read-back is off).
+    pub fn last_reply(&self) -> &[u8] {
+        &self.last_reply
     }
 }
 
@@ -157,7 +165,10 @@ impl<T: Transport> Display for V1_2Display<T> {
             // Only logged by the vendor; anything here (data, nothing, an
             // error) is ignored.
             let mut buf = [0u8; READ_LEN];
-            let _ = self.transport.read(&mut buf, READ_BACK_TIMEOUT);
+            let n = self.transport.read(&mut buf, READ_BACK_TIMEOUT).unwrap_or(0);
+            self.last_reply = buf[..n].to_vec();
+        } else {
+            self.last_reply.clear();
         }
         Ok(Sent { raw: raw.to_vec(), wire, index: Some(index) })
     }
@@ -302,7 +313,9 @@ mod tests {
         mock.push_read(&[0xAA; 65]); // a reply: read and ignored
         mock.push_read_error("read failed"); // an error: ignored
         assert_eq!(d.send(&F).unwrap().index, Some(0));
+        assert_eq!(d.last_reply(), &[0xAA; 65][..]);
         assert_eq!(d.send(&F).unwrap().index, Some(1));
+        assert!(d.last_reply().is_empty());
         assert_eq!(d.send(&F).unwrap().index, Some(2)); // nothing scripted: timeout
         assert_eq!(mock.written().len(), 4);
     }

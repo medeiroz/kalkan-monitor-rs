@@ -17,6 +17,13 @@ pub fn label() -> String {
     format!("USB HID {VID:04x}:{PID:04x} (Kalkan 1.2)")
 }
 
+/// Opens one candidate by path, without any handshake (diagnostics:
+/// `kalkan handshake`).
+pub fn open_candidate(candidate: &HidDeviceInfo) -> Result<HidTransport> {
+    let api = hidapi::HidApi::new()?;
+    HidTransport::open_path(&api, &candidate.path, label())
+}
+
 /// Opens the first of `candidates` (see [`hid::candidates`]) that opens by
 /// path **and** completes the handshake. Returns the first candidate's error
 /// when none does (the first one is the most likely to be the display).
