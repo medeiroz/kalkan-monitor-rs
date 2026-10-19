@@ -576,7 +576,7 @@ export component AppWindow inherits Window {
     property <length> side-w: root.compact ? 160px : 200px;
 
     // navigation
-    in-out property <int> active-page: 0;   // 0 dashboard, 1 display, 2 device
+    in-out property <int> active-page: 1;   // 0 dashboard, 1 display (initial page), 2 device, 3 settings
 
     // ---- dashboard ----
     in property <float> cpu-load: 0;
@@ -656,8 +656,8 @@ export component AppWindow inherits Window {
                     Text { text: "KALKAN"; color: Palette.ink; font-size: 18px; font-weight: 800; letter-spacing: 1px; }
                     Text { text: "Monitor"; color: Palette.faint; font-size: 13px; font-weight: 600; }
                 }
-                NavItem { text: "Dashboard";      selected: root.active-page == 0; clicked => { root.active-page = 0; } }
                 NavItem { text: "Display";     selected: root.active-page == 1; clicked => { root.active-page = 1; } }
+                NavItem { text: "Dashboard";      selected: root.active-page == 0; clicked => { root.active-page = 0; } }
                 NavItem { text: "Device"; selected: root.active-page == 2; clicked => { root.active-page = 2; } }
                 NavItem { text: "Settings"; selected: root.active-page == 3; clicked => { root.active-page = 3; } }
 
@@ -811,7 +811,25 @@ export component AppWindow inherits Window {
                 }
 
                 // ============ DISPLAY ============
-                if root.active-page == 1 : GridLayout {
+                if root.active-page == 1 : VerticalLayout {
+                    spacing: 16px;
+                    if root.conn-state != ConnState.connected : Rectangle {
+                        min-height: 44px;
+                        background: Palette.warn-weak;
+                        border-radius: 12px;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-top: 10px;
+                            padding-bottom: 10px;
+                            Text {
+                                text: "No cooler connected — nothing is being sent to the display.";
+                                color: Palette.warn; font-size: 13px; font-weight: 600; vertical-alignment: center; wrap: word-wrap;
+                            }
+                        }
+                    }
+                    GridLayout {
+                    vertical-stretch: 1;
                     spacing: 20px;
                     // left: the 3 slots
                     Rectangle {
@@ -880,6 +898,7 @@ export component AppWindow inherits Window {
                             color: Palette.faint; font-size: 12px; font-weight: 500; wrap: word-wrap;
                         }
                         Rectangle { vertical-stretch: 1; }
+                    }
                     }
                 }
 

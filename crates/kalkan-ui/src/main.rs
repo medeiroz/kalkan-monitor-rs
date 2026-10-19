@@ -448,9 +448,9 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Test shortcut: KALKAN_PAGE=0|1|2 opens straight on a screen.
+    // Test shortcut: KALKAN_PAGE=0|1|2|3 opens straight on a screen (default 1, Display).
     if let Ok(p) = std::env::var("KALKAN_PAGE") {
-        ui.set_active_page(p.parse().unwrap_or(0));
+        ui.set_active_page(p.parse().unwrap_or(1));
     }
 
     // The temperature and fan lists are filled from the sensors as they appear
