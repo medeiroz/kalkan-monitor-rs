@@ -220,6 +220,10 @@ component DisplayPreview inherits Rectangle {
     // Round screen: square, capped at 240px and centered in the column.
     property <length> dia: min(root.width, 240px);
     height: root.dia + 28px;
+    // Temperature digits' font sizes; the "°C" is exactly half of them (as on
+    // the real cooler), in every size.
+    property <length> alpha-temp-size: root.dia * 0.34;
+    property <length> delta-temp-size: root.dia * 0.3;
 
     Rectangle {
         y: 0px;
@@ -250,14 +254,14 @@ component DisplayPreview inherits Rectangle {
                     Text {
                         text: root.temp == "" ? "--" : root.temp;
                         color: white;
-                        font-size: root.dia * 0.3;
+                        font-size: root.delta-temp-size;
                         font-weight: 800;
                         vertical-alignment: center;
                     }
                     VerticalLayout {
                         alignment: start;
                         padding-top: root.dia * 0.04;
-                        Text { text: "°C"; color: white; font-size: root.dia * 0.09; font-weight: 700; }
+                        Text { text: "°C"; color: white; font-size: root.delta-temp-size / 2; font-weight: 700; }
                     }
                 }
                 HorizontalLayout {
@@ -290,7 +294,7 @@ component DisplayPreview inherits Rectangle {
                 Text {
                     text: root.temp == "" ? "--" : root.temp;
                     color: white;
-                    font-size: root.dia * 0.34;
+                    font-size: root.alpha-temp-size;
                     font-weight: 800;
                     font-family: "Consolas";
                     letter-spacing: root.dia * 0.012;
@@ -299,7 +303,7 @@ component DisplayPreview inherits Rectangle {
                 VerticalLayout {
                     alignment: start;
                     padding-top: root.dia * 0.04;
-                    Text { text: "°C"; color: white; font-size: root.dia * 0.1; font-weight: 700; }
+                    Text { text: "°C"; color: white; font-size: root.alpha-temp-size / 2; font-weight: 700; }
                 }
             }
             Text {
