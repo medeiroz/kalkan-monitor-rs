@@ -19,6 +19,7 @@ pub mod selection;
 pub mod sensors;
 pub mod settings;
 pub mod transport;
+pub mod v1_2;
 pub mod v1_3;
 
 /// Stable path for the firmware 1.3 protocol (`kalkan_core::protocol::...`).
