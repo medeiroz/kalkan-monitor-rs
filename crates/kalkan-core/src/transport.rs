@@ -105,3 +105,89 @@ impl Transport for SerialTransport {
         self.label.clone()
     }
 }
+
+/// Scriptable in-memory transport for tests. Clones share the same state, so a
+/// test can keep a handle while the transport is moved into a `Display`.
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub struct MockTransport {
+    state: std::sync::Arc<std::sync::Mutex<MockState>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct MockState {
+    written: Vec<Vec<u8>>,
+    reads: std::collections::VecDeque<Result<Vec<u8>, String>>,
+    write_errors: std::collections::VecDeque<String>,
+}
+
+#[cfg(test)]
+impl MockTransport {
+    /// Every successful write so far, in order.
+    pub fn written(&self) -> Vec<Vec<u8>> {
+        self.state.lock().unwrap().written.clone()
+    }
+
+    /// The next `read` returns these bytes.
+    pub fn push_read(&self, data: &[u8]) {
+        self.state.lock().unwrap().reads.push_back(Ok(data.to_vec()));
+    }
+
+    /// The next `read` fails with `msg`.
+    pub fn push_read_error(&self, msg: &str) {
+        self.state.lock().unwrap().reads.push_back(Err(msg.into()));
+    }
+
+    /// The next `write` fails with `msg` (and records nothing).
+    pub fn fail_next_write(&self, msg: &str) {
+        self.state.lock().unwrap().write_errors.push_back(msg.into());
+    }
+}
+
+#[cfg(test)]
+impl Transport for MockTransport {
+    fn write(&mut self, data: &[u8]) -> Result<usize> {
+        let mut s = self.state.lock().unwrap();
+        if let Some(msg) = s.write_errors.pop_front() {
+            return Err(anyhow!(msg));
+        }
+        s.written.push(data.to_vec());
+        Ok(data.len())
+    }
+
+    fn read(&mut self, buf: &mut [u8], _timeout: Duration) -> Result<usize> {
+        match self.state.lock().unwrap().reads.pop_front() {
+            Some(Ok(data)) => {
+                let n = data.len().min(buf.len());
+                buf[..n].copy_from_slice(&data[..n]);
+                Ok(n)
+            }
+            Some(Err(msg)) => Err(anyhow!(msg)),
+            None => Ok(0), // nothing scripted: behaves like a timeout
+        }
+    }
+
+    fn description(&self) -> String {
+        "mock".into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mock_records_writes_and_scripts_reads() {
+        let mut m = MockTransport::default();
+        assert_eq!(m.write(&[1, 2, 3]).unwrap(), 3);
+        assert_eq!(m.written(), vec![vec![1, 2, 3]]);
+        m.push_read(&[9, 8]);
+        m.push_read_error("boom");
+        let mut buf = [0u8; 4];
+        assert_eq!(m.read(&mut buf, Duration::ZERO).unwrap(), 2);
+        assert_eq!(&buf[..2], &[9, 8]);
+        assert!(m.read(&mut buf, Duration::ZERO).is_err());
+        assert_eq!(m.read(&mut buf, Duration::ZERO).unwrap(), 0);
+    }
+}

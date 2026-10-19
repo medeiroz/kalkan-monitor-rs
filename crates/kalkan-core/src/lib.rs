@@ -11,6 +11,7 @@
 //! opened at 1 Mbps, 8N1, no flow control. There is no handshake.
 
 pub mod device;
+pub mod firmware;
 pub mod hwmon;
 pub mod macos;
 pub mod naming;
@@ -29,6 +30,7 @@ pub use device::{
     available_serial_ports, enumerate, find_display_port, is_display_port, looks_like_display,
     HidDeviceInfo, SerialDeviceInfo, DISPLAY_IDS,
 };
+pub use firmware::{open, profiles, Bus, Display, Fields, Firmware, Profile, Sent};
 pub use hwmon::LinuxSource;
 pub use macos::MacSource;
 pub use v1_3::protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
