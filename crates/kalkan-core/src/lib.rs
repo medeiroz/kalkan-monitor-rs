@@ -14,11 +14,16 @@ pub mod device;
 pub mod hwmon;
 pub mod macos;
 pub mod naming;
-pub mod protocol;
 pub mod selection;
 pub mod sensors;
 pub mod settings;
 pub mod transport;
+pub mod v1_3;
+
+/// Stable path for the firmware 1.3 protocol (`kalkan_core::protocol::...`).
+pub mod protocol {
+    pub use crate::v1_3::protocol::*;
+}
 
 pub use device::{
     available_serial_ports, enumerate, find_display_port, is_display_port, looks_like_display,
@@ -26,7 +31,7 @@ pub use device::{
 };
 pub use hwmon::LinuxSource;
 pub use macos::MacSource;
-pub use protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
+pub use v1_3::protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};
 pub use selection::{
     fan_options, same_layout, select_fan, select_temp, temp_options, FanSource, MaxTracker,
     SourceOption, TempSource,
