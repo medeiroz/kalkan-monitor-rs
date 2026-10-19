@@ -2,11 +2,44 @@
 
 [English](README.md) | **Português (Brasil)**
 
-Monitor open source e multiplataforma (Windows / macOS / Linux) para os
-watercoolers (AIO, refrigeração líquida) **Kalkan Alpha 240**, **Alpha 360** e
-**Alpha 360-W** e **Kalkan Delta V2 240** e **Delta V2 360**. Ele lê a
-**temperatura da CPU** e a envia ao display do cooler, como alternativa gratuita
-e open source ao software oficial Kalkan PC SmartMonitor. Escrito em Rust.
+Monitor gratuito, open source e multiplataforma (Windows / macOS / Linux) para
+os watercoolers (AIO, refrigeração líquida) **Kalkan Alpha** e **Delta V2**. Ele
+lê a **temperatura da CPU** e a mostra no display do cooler, como alternativa
+ao software oficial Kalkan PC SmartMonitor.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/img/app-display.png" alt="Kalkan Monitor, página Display com a prévia do cooler Alpha: tela redonda mostrando a temperatura da CPU e os seletores de fonte de temperatura, RPM e uso" width="420"><br><sub>Alpha</sub></td>
+    <td align="center"><img src="docs/img/app-display-delta-v2.png" alt="Kalkan Monitor, página Display com a prévia do cooler Delta V2: temperatura e velocidade da ventoinha" width="420"><br><sub>Delta V2</sub></td>
+  </tr>
+</table>
+
+## Download
+
+Baixe a versão mais recente na
+**[página de Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases/latest)**
+(abra **Assets** e escolha o arquivo do seu sistema):
+
+| Sistema | Arquivo para baixar | Observações |
+| --- | --- | --- |
+| Windows (64 bits) | `KalkanMonitor-Setup-<versão>.exe` (instalador) | Inclui tudo, inclusive o driver de sensores |
+| Linux (Debian, Ubuntu e derivadas, 64 bits) | `kalkan-monitor_<versão>_amd64.deb` | Inclui a regra de permissão USB |
+| macOS 11 ou posterior (Apple Silicon e Intel) | `KalkanMonitor-<versão>.dmg` | App universal |
+
+**Windows.** Execute o instalador e siga os passos. Ao abrir o app, ele pede
+**permissão de administrador** (o aviso do UAC do Windows): é necessária para ler
+a temperatura da CPU e a velocidade da ventoinha. Aceite. Se você recusar, o app
+abre mesmo assim, mas mostra um aviso e não consegue ler os sensores.
+
+**Linux.** Dê dois cliques no `.deb` (ou rode `sudo apt install ./kalkan-monitor_<versão>_amd64.deb`).
+O pacote já configura a permissão para falar com o display: **desconecte e
+reconecte o cabo USB do cooler** depois de instalar. Outras distribuições:
+veja [Instalar (Linux)](#instalar-linux).
+
+**macOS.** Abra o `.dmg` e arraste o **Kalkan Monitor** para **Aplicativos**;
+abra-o a partir de lá. Na primeira vez, o macOS pode dizer que o app é de um
+"desenvolvedor não identificado": clique com o botão direito no app, escolha
+**Abrir** e depois **Abrir** de novo (detalhes em [Instalar (macOS)](#instalar-macos)).
 
 ## Coolers suportados
 
@@ -54,6 +87,69 @@ Se você tem um Delta V2, relatos são bem-vindos: abra uma issue com a saída d
 > janeiro/2026**, segundo a Kalkan) e pelo Delta V2. A versão 1.2 (Alpha Rev.1,
 > produtos mais antigos) usa um protocolo diferente ([notas](docs/v1.2/protocol-PT.md)) e **não é compatível** com este código —
 > e vice-versa. Fork adaptado do repositório 1.2.
+
+
+## Recursos
+
+- Mostra a **temperatura da CPU** no display do cooler, atualizada a cada segundo.
+- Dashboard com temperatura da CPU, velocidade da ventoinha e uso da CPU ao vivo.
+- **Escolha das fontes**: defina qual sensor alimenta os campos de temperatura e
+  RPM (Auto, Max CPU/GPU ou qualquer sensor de temperatura/ventoinha do seu PC).
+- **Prévia da tela** do cooler, para Alpha e Delta V2.
+- **Ícone na bandeja** (barra de menus no macOS): fechar a janela mantém o app
+  rodando e atualizando o display.
+- **Iniciar com o sistema**: vem ativado na primeira execução, e você pode
+  desligar em **Settings**.
+
+## Como usar
+
+1. Conecte o cabo USB do cooler ao PC (a conexão USB do próprio cooler, a mesma
+   usada pelo software oficial) e feche o software oficial da Kalkan, se estiver
+   instalado.
+2. Abra o **Kalkan Monitor**. O status no canto inferior esquerdo deve dizer
+   **Connected**.
+3. Na página **Display**, confira as fontes de temperatura e RPM (**Auto**
+   serve para a maioria dos PCs) e escolha o modelo do seu cooler (Alpha ou
+   Delta V2) para a prévia.
+4. Pronto: pode fechar a janela, o app continua rodando na bandeja. Ajuste
+   **Settings** se não quiser que ele inicie com o sistema.
+
+## Solução de problemas / FAQ
+
+**O display do cooler fica travado em "88°".** Você provavelmente tem a outra
+revisão do hardware. Este app suporta o Alpha **Rev.2** (firmware 1.3, vendido a
+partir de janeiro de 2026) e o Delta V2. O Alpha **Rev.1** (vendido antes de
+janeiro de 2026, firmware 1.2) usa outro protocolo, ainda não suportado. Veja o
+aviso em [Coolers suportados](#coolers-suportados).
+
+**O app diz que o cooler não foi encontrado.** Confira se o cabo USB está
+conectado, tente outra porta USB e **feche o software oficial da Kalkan** ou
+qualquer outro programa que possa estar usando o display. Depois reconecte o cabo.
+
+**O Windows pede permissão de administrador / mostra um aviso.** O app precisa
+dela para ler os sensores de temperatura. Reinicie o app e aceite o aviso. Ele
+inicia com o sistema sem pedir de novo.
+
+**Linux: "Permission denied" ao abrir o display.** Instale o `.deb` (ele
+adiciona a regra de permissão) e reconecte o cooler. Sem a regra, rode
+`sudo usermod -aG dialout $USER` (`uucp` no Arch) e faça login de novo. Detalhes
+em [Instalar (Linux)](#instalar-linux).
+
+**macOS: o display está conectado mas nenhuma porta é encontrada.** O chip USB
+do display (CH34x) pode precisar de um driver em versões mais antigas do macOS:
+instale o CH34xVCPDriver da WCH em [wch-ic.com](https://www.wch-ic.com/), libere-o
+em **Ajustes do Sistema → Privacidade e Segurança** e reconecte o cooler.
+Detalhes em [Instalar (macOS)](#instalar-macos).
+
+**Meu Delta V2 é suportado?** É compatível por protocolo, mas ainda não foi
+testado em hardware real. Relatos são bem-vindos (abra uma issue com a saída de
+`kalkan list`).
+
+---
+
+# Detalhes técnicos
+
+As seções abaixo são para os curiosos e para quem quer contribuir.
 
 É uma reimplementação em Rust do driver + interface do protocolo **Kalkan
 SmartMonitor 1.3** usado por esses coolers. Projeto novo — não é o
