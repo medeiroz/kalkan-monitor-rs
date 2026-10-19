@@ -47,25 +47,11 @@ The official Kalkan list (see [kalkan.com.br/cooler](https://www.kalkan.com.br/c
 
 | Cooler | Model code | Notes |
 | --- | --- | --- |
-| [Kalkan Alpha 240](https://www.kalkan.com.br/produto/alpha-240) | KLK047 | 240 mm AIO watercooler, round LCD showing only the CPU temperature. Units purchased from Jan/2026 only (*) |
-| [Kalkan Alpha 360](https://www.kalkan.com.br/produto/alpha-360) | KLK048 | 360 mm AIO watercooler, round LCD showing only the CPU temperature. Units purchased from Jan/2026 only (*) |
-| [Kalkan Alpha 360-W](https://www.kalkan.com.br/produto/alpha-360w) | KLK049 | White version of the Alpha 360. Units purchased from Jan/2026 only (*) |
+| [Kalkan Alpha 240](https://www.kalkan.com.br/produto/alpha-240) | KLK047 | 240 mm AIO watercooler, round LCD showing only the CPU temperature. Alpha Rev.2 (firmware 1.3) only |
+| [Kalkan Alpha 360](https://www.kalkan.com.br/produto/alpha-360) | KLK048 | 360 mm AIO watercooler, round LCD showing only the CPU temperature. Alpha Rev.2 (firmware 1.3) only |
+| [Kalkan Alpha 360-W](https://www.kalkan.com.br/produto/alpha-360w) | KLK049 | White version of the Alpha 360. Alpha Rev.2 (firmware 1.3) only |
 | [Kalkan Delta V2 240](https://www.kalkan.com.br/produto/delta-v2-240) | KLK066 | 240 mm AIO watercooler, compatible by protocol; not yet tested on hardware |
 | [Kalkan Delta V2 360](https://www.kalkan.com.br/produto/delta-v2-360) | KLK067 | 360 mm AIO watercooler, compatible by protocol; not yet tested on hardware |
-
-> [!WARNING]
-> (*) **The Alpha line (Alpha 240, 360 and 360-W) is supported only for
-> Revision 2 units (firmware 1.3).** Kalkan says Alpha units purchased from
-> January 2026 onward are Rev.2 and units sold before Jan/2026 are Rev.1
-> (firmware 1.2, a different USB HID protocol, not supported yet; see the
-> [experimental 1.2 notes](docs/v1.2/protocol.md)). The purchase date is the
-> vendor's rule of thumb: the box label (serial above the barcode: SKU followed
-> by the manufacturing date as YYYYMMDD) is more precise. If the official
-> software leaves the display stuck at 88°, the other version is the right one
-> ([details](docs/v1.3/protocol.md#troubleshooting--which-version-do-i-have)).
-> The official "Kalkan PC SmartMonitor (Linha Alpha Rev.2) V1.3" installer was
-> verified statically to ship the exact same application binary (same SHA-256)
-> this protocol was derived from.
 
 **Alpha 240 / 360 / 360-W:** the **round display shows only the CPU
 temperature**. Fan RPM and load are not shown on the screen (the app still sends
@@ -79,14 +65,6 @@ binary (same SHA-256) this protocol was derived from, so the USB IDs
 What the Delta V2 display shows (shape and fields) has not been verified; the
 official software sends temperature and fan speed. If you own a Delta V2,
 reports are welcome: please open an issue with the output of `kalkan list`.
-
-> [!IMPORTANT]
-> **This repository targets version 1.3 of the Kalkan PC SmartMonitor
-> software/protocol**, used by Alpha Rev.2 units (bought **from January 2026
-> onward**, per Kalkan) and by the Delta V2. Version 1.2 (Alpha Rev.1, older
-> products) uses a different protocol ([notes](docs/v1.2/protocol.md)) and is **not compatible** with this code — and vice
-> versa. It is a fork adapted from the 1.2 repository.
-
 
 ## Features
 
@@ -116,8 +94,7 @@ reports are welcome: please open an issue with the output of `kalkan list`.
 **The cooler's display is stuck at "88°".** You most likely have the other
 hardware revision. This app supports Alpha **Rev.2** (firmware 1.3, sold from
 January 2026) and Delta V2. Alpha **Rev.1** (sold before January 2026, firmware
-1.2) uses a different protocol that is not supported yet. See the warning in
-[Supported coolers](#supported-coolers).
+1.2) uses a different protocol that is not supported yet.
 
 **The app says the cooler was not found.** Check that the USB cable is plugged
 in, try another USB port, and **close the official Kalkan software** or any

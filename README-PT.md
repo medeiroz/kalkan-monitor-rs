@@ -47,25 +47,11 @@ Lista oficial da Kalkan (veja [kalkan.com.br/cooler](https://www.kalkan.com.br/c
 
 | Cooler | Código do modelo | Observações |
 | --- | --- | --- |
-| [Kalkan Alpha 240](https://www.kalkan.com.br/produto/alpha-240) | KLK047 | Watercooler AIO de 240 mm, LCD redondo que mostra apenas a temperatura da CPU. Apenas unidades compradas a partir de jan/2026 (*) |
-| [Kalkan Alpha 360](https://www.kalkan.com.br/produto/alpha-360) | KLK048 | Watercooler AIO de 360 mm, LCD redondo que mostra apenas a temperatura da CPU. Apenas unidades compradas a partir de jan/2026 (*) |
-| [Kalkan Alpha 360-W](https://www.kalkan.com.br/produto/alpha-360w) | KLK049 | Versão branca do Alpha 360. Apenas unidades compradas a partir de jan/2026 (*) |
+| [Kalkan Alpha 240](https://www.kalkan.com.br/produto/alpha-240) | KLK047 | Watercooler AIO de 240 mm, LCD redondo que mostra apenas a temperatura da CPU. Apenas Alpha Rev.2 (firmware 1.3) |
+| [Kalkan Alpha 360](https://www.kalkan.com.br/produto/alpha-360) | KLK048 | Watercooler AIO de 360 mm, LCD redondo que mostra apenas a temperatura da CPU. Apenas Alpha Rev.2 (firmware 1.3) |
+| [Kalkan Alpha 360-W](https://www.kalkan.com.br/produto/alpha-360w) | KLK049 | Versão branca do Alpha 360. Apenas Alpha Rev.2 (firmware 1.3) |
 | [Kalkan Delta V2 240](https://www.kalkan.com.br/produto/delta-v2-240) | KLK066 | Watercooler AIO de 240 mm, compatível por protocolo; ainda não testado em hardware |
 | [Kalkan Delta V2 360](https://www.kalkan.com.br/produto/delta-v2-360) | KLK067 | Watercooler AIO de 360 mm, compatível por protocolo; ainda não testado em hardware |
-
-> [!WARNING]
-> (*) **A linha Alpha (Alpha 240, 360 e 360-W) é suportada apenas para
-> unidades Revisão 2 (firmware 1.3).** Segundo a Kalkan, unidades Alpha
-> compradas a partir de janeiro de 2026 são Rev.2 e as vendidas antes de
-> jan/2026 são Rev.1 (firmware 1.2, outro protocolo USB HID, ainda não
-> suportado; veja as [notas experimentais da 1.2](docs/v1.2/protocol-PT.md)).
-> A data de compra é a regra prática do fabricante: a etiqueta da caixa (serial
-> acima do código de barras: SKU seguido da data de fabricação em AAAAMMDD) é
-> mais precisa. Se o software oficial deixa o display travado em 88°, a outra
-> versão é a certa ([detalhes](docs/v1.3/protocol-PT.md#solução-de-problemas--qual-versão-eu-tenho)).
-> Verificamos de forma estática que o instalador oficial "Kalkan PC
-> SmartMonitor (Linha Alpha Rev.2) V1.3" traz exatamente o mesmo binário (mesmo
-> SHA-256) do qual este protocolo foi derivado.
 
 **Alpha 240 / 360 / 360-W:** o **display redondo mostra apenas a temperatura da
 CPU**. RPM da ventoinha e uso (%) não aparecem na tela (o app ainda os envia no
@@ -80,14 +66,6 @@ frame são idênticos. O que o display do Delta V2 exibe (formato e campos) não
 foi verificado; o software oficial envia temperatura e velocidade da ventoinha.
 Se você tem um Delta V2, relatos são bem-vindos: abra uma issue com a saída de
 `kalkan list`.
-
-> [!IMPORTANT]
-> **Este repositório é da versão 1.3 do software/protocolo Kalkan PC
-> SmartMonitor**, usada pelas unidades Alpha Rev.2 (compradas **a partir de
-> janeiro/2026**, segundo a Kalkan) e pelo Delta V2. A versão 1.2 (Alpha Rev.1,
-> produtos mais antigos) usa um protocolo diferente ([notas](docs/v1.2/protocol-PT.md)) e **não é compatível** com este código —
-> e vice-versa. Fork adaptado do repositório 1.2.
-
 
 ## Recursos
 
@@ -119,8 +97,7 @@ Se você tem um Delta V2, relatos são bem-vindos: abra uma issue com a saída d
 **O display do cooler fica travado em "88°".** Você provavelmente tem a outra
 revisão do hardware. Este app suporta o Alpha **Rev.2** (firmware 1.3, vendido a
 partir de janeiro de 2026) e o Delta V2. O Alpha **Rev.1** (vendido antes de
-janeiro de 2026, firmware 1.2) usa outro protocolo, ainda não suportado. Veja o
-aviso em [Coolers suportados](#coolers-suportados).
+janeiro de 2026, firmware 1.2) usa outro protocolo, ainda não suportado.
 
 **O app diz que o cooler não foi encontrado.** Confira se o cabo USB está
 conectado, tente outra porta USB e **feche o software oficial da Kalkan** ou
