@@ -225,6 +225,7 @@ pub(crate) mod tests {
     fn display_marks_and_profile() {
         let d = dev(VID, PID, "p", 0);
         assert!(d.is_display() && looks_like_display(&d));
+        assert_eq!(d.profile().map(|p| p.firmware), Some(crate::Firmware::V1_2));
         let other = dev(0x0416, 0x5020, "p", 0);
         assert!(!other.is_display() && other.profile().is_none());
     }

@@ -31,7 +31,10 @@ pub use device::{
     available_serial_ports, enumerate, find_display_port, is_display_port, looks_like_display,
     HidDeviceInfo, SerialDeviceInfo, DISPLAY_IDS,
 };
-pub use firmware::{open, profile_for, profiles, Bus, Display, Fields, Firmware, Profile, Sent};
+pub use firmware::{
+    find, open, profile_for, profiles, Bus, Display, Fields, Firmware, Found, NotFound, Profile, Sent,
+};
+pub use v1_2::{HandshakeError, V1_2Display};
 pub use hwmon::LinuxSource;
 pub use macos::MacSource;
 pub use v1_3::protocol::{build_frame, scramble, KalkanBuilder, PacketBuilder, FRAME_LEN};

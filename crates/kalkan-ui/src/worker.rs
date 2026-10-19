@@ -16,6 +16,21 @@ use kalkan_core::{Display, Fields};
 /// value per second, so this means one attempt per tick, as before).
 const OPEN_RETRY: Duration = Duration::from_millis(900);
 
+/// Longest wait between attempts while a firmware 1.2 handshake keeps failing.
+/// Each failed handshake can block this thread for up to 2 s, so repeated
+/// failures back off (0.9, 1.8, 3.6, 5 s…). Other open errors (display absent,
+/// permission denied) keep the plain [`OPEN_RETRY`] cadence, as before.
+const MAX_BACKOFF: Duration = Duration::from_secs(5);
+
+/// Wait before the next open attempt after `handshake_fails` consecutive
+/// handshake failures.
+fn retry_delay(handshake_fails: u32) -> Duration {
+    match handshake_fails {
+        0 => OPEN_RETRY,
+        n => OPEN_RETRY.saturating_mul(1 << (n - 1).min(8)).min(MAX_BACKOFF),
+    }
+}
+
 /// Connection state reported to the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Conn {
@@ -37,6 +52,8 @@ pub struct Status {
 struct Link {
     device: Option<Box<dyn Display>>,
     last_open: Option<Instant>,
+    /// Consecutive failed 1.2 handshakes (drives the backoff).
+    handshake_fails: u32,
 }
 
 impl Link {
@@ -54,16 +71,23 @@ impl Link {
     ) -> Option<Status> {
         let mut opened = false;
         if self.device.is_none() {
-            if self.last_open.is_some_and(|t| now.saturating_duration_since(t) < OPEN_RETRY) {
+            let wait = retry_delay(self.handshake_fails);
+            if self.last_open.is_some_and(|t| now.saturating_duration_since(t) < wait) {
                 return None;
             }
             self.last_open = Some(now);
             match open() {
                 Ok(d) => {
                     self.device = Some(d);
+                    self.handshake_fails = 0;
                     opened = true;
                 }
                 Err(e) => {
+                    if e.downcast_ref::<kalkan_core::HandshakeError>().is_some() {
+                        self.handshake_fails = self.handshake_fails.saturating_add(1);
+                    } else {
+                        self.handshake_fails = 0;
+                    }
                     return Some(Status { conn: Conn::Disconnected, error: Some(format!("{e}")) });
                 }
             }
@@ -282,6 +306,62 @@ mod tests {
         let s = link.step(&f(3), t0 + Duration::from_secs(2), &mut open).unwrap();
         assert_eq!(s, Status { conn: Conn::Connected, error: Some(String::new()) });
         assert_eq!(rig.opens.load(SeqCst), 2);
+    }
+
+    #[test]
+    fn retry_delay_backs_off_up_to_the_cap() {
+        assert_eq!(retry_delay(0), OPEN_RETRY);
+        assert_eq!(retry_delay(1), OPEN_RETRY);
+        assert_eq!(retry_delay(2), OPEN_RETRY * 2);
+        assert_eq!(retry_delay(3), OPEN_RETRY * 4);
+        assert_eq!(retry_delay(4), MAX_BACKOFF);
+        assert_eq!(retry_delay(u32::MAX), MAX_BACKOFF);
+    }
+
+    #[test]
+    fn failing_handshakes_back_off_and_success_resets() {
+        let opens = AtomicU32::new(0);
+        let ok = AtomicBool::new(false);
+        let rig = Rig::new();
+        let mut open = || -> Result<Box<dyn Display>> {
+            opens.fetch_add(1, SeqCst);
+            if ok.load(SeqCst) {
+                rig.open()
+            } else {
+                Err(kalkan_core::HandshakeError("no reply".into()).into())
+            }
+        };
+        let mut link = Link::default();
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let s = link.step(&f(1), at(0), &mut open).unwrap();
+        assert_eq!(s.conn, Conn::Disconnected);
+        assert!(s.error.unwrap().contains("handshake"));
+        link.step(&f(1), at(1000), &mut open).unwrap(); // 1st retry after 0.9 s
+        assert_eq!(opens.load(SeqCst), 2);
+        // Now 2 failures: the next try waits 1.8 s.
+        assert_eq!(link.step(&f(1), at(2000), &mut open), None);
+        link.step(&f(1), at(2900), &mut open).unwrap();
+        assert_eq!(opens.load(SeqCst), 3);
+        // 3 failures: 3.6 s.
+        assert_eq!(link.step(&f(1), at(6000), &mut open), None);
+        ok.store(true, SeqCst);
+        let s = link.step(&f(1), at(6500), &mut open).unwrap();
+        assert_eq!(s.conn, Conn::Connected);
+        assert_eq!(link.handshake_fails, 0);
+    }
+
+    #[test]
+    fn other_open_errors_keep_the_one_second_cadence() {
+        let rig = Rig::new();
+        rig.present.store(false, SeqCst);
+        let mut open = || rig.open();
+        let mut link = Link::default();
+        let t0 = Instant::now();
+        for i in 0..5u64 {
+            assert!(link.step(&f(1), t0 + Duration::from_secs(i), &mut open).is_some());
+        }
+        assert_eq!(rig.opens.load(SeqCst), 5);
     }
 
     #[test]

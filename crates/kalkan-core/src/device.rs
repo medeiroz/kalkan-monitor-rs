@@ -38,7 +38,7 @@ impl SerialDeviceInfo {
 
     /// The supported-display profile (firmware/bus) this port matches, if any.
     pub fn profile(&self) -> Option<&'static crate::Profile> {
-        crate::profile_for(self.vendor_id?, self.product_id?)
+        crate::profile_for(self.vendor_id?, self.product_id?).filter(|p| p.bus == crate::Bus::Serial)
     }
 }
 

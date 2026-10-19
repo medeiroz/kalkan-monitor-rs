@@ -25,7 +25,7 @@ pub fn find_display_port() -> Result<Option<String>> {
 }
 
 /// The display's port among `ports`, by [`IDS`] order, `cu.` first.
-fn pick_display_port(ports: &[SerialDeviceInfo]) -> Option<String> {
+pub(crate) fn pick_display_port(ports: &[SerialDeviceInfo]) -> Option<String> {
     IDS.iter().find_map(|&(vid, pid)| {
         ports
             .iter()
