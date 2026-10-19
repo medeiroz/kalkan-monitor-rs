@@ -39,7 +39,7 @@ pub use selection::{
     SourceOption, TempSource,
 };
 pub use sensors::{default_source, Reading, SensorKind, SensorSource, SensorValue, SysinfoSource};
-pub use settings::Settings;
+pub use settings::{CoolerModel, Settings};
 pub use transport::{HidTransport, SerialTransport, Transport};
 pub use v1_3::{open_display, BAUD};
 

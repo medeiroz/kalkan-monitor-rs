@@ -11,12 +11,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::selection::{FanSource, TempSource};
 
+/// Which cooler the screen preview mimics. Alpha and Delta V2 speak the same
+/// protocol, so this cannot be detected: the user picks it. Purely cosmetic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoolerModel {
+    /// Round display with the temperature and the fan speed.
+    DeltaV2,
+    /// Round display with the temperature only (also any unknown value;
+    /// `serde(other)` must be the last variant).
+    #[default]
+    #[serde(other)]
+    Alpha,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default)]
     pub temp_source: TempSource,
     #[serde(default)]
     pub fan_source: FanSource,
+    #[serde(default)]
+    pub cooler_model: CoolerModel,
 }
 
 impl Settings {
@@ -70,10 +86,11 @@ mod tests {
         let s = Settings {
             temp_source: TempSource::Sensor("/gpu/0/temp/0".into()),
             fan_source: FanSource::Sensor("/lpc/0/fan/2".into()),
+            cooler_model: CoolerModel::DeltaV2,
         };
         s.save_to(&p).unwrap();
         assert_eq!(Settings::load_from(&p), s);
-        let s2 = Settings { temp_source: TempSource::MaxCpuGpu, fan_source: FanSource::Auto };
+        let s2 = Settings { temp_source: TempSource::MaxCpuGpu, ..Settings::default() };
         s2.save_to(&p).unwrap();
         assert_eq!(Settings::load_from(&p), s2);
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
@@ -92,8 +109,33 @@ mod tests {
         std::fs::write(&p, r#"{"temp_source":"max_cpu_gpu"}"#).unwrap();
         assert_eq!(
             Settings::load_from(&p),
-            Settings { temp_source: TempSource::MaxCpuGpu, fan_source: FanSource::Auto }
+            Settings { temp_source: TempSource::MaxCpuGpu, ..Settings::default() }
         );
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn cooler_model_defaults_and_back_compat() {
+        let p = tmp("model");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        // Old file without the field: Alpha, sources kept.
+        std::fs::write(&p, r#"{"temp_source":"max_cpu_gpu"}"#).unwrap();
+        assert_eq!(Settings::load_from(&p).cooler_model, CoolerModel::Alpha);
+        assert_eq!(Settings::load_from(&p).temp_source, TempSource::MaxCpuGpu);
+        // Unknown value falls back to Alpha without discarding the rest.
+        std::fs::write(&p, r#"{"temp_source":"max_cpu_gpu","cooler_model":"bogus"}"#).unwrap();
+        let s = Settings::load_from(&p);
+        assert_eq!(s.cooler_model, CoolerModel::Alpha);
+        assert_eq!(s.temp_source, TempSource::MaxCpuGpu);
+        // Serialized form.
+        std::fs::write(&p, r#"{"cooler_model":"delta_v2"}"#).unwrap();
+        assert_eq!(Settings::load_from(&p).cooler_model, CoolerModel::DeltaV2);
+        let json = serde_json::to_string(&Settings {
+            cooler_model: CoolerModel::DeltaV2,
+            ..Settings::default()
+        })
+        .unwrap();
+        assert!(json.contains(r#""cooler_model":"delta_v2""#));
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 }

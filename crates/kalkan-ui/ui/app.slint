@@ -207,10 +207,13 @@ component StatCard inherits Rectangle {
 // ---------------------------------------------------------------- LCD preview
 component DisplayPreview inherits Rectangle {
     in property <string> temp;
-    // Not shown: the real screen only displays the temperature. Kept so the
-    // callers (and the Rust side) don't change.
+    // Not shown: neither model displays the usage. Kept so the callers (and the
+    // Rust side) don't change.
     in property <string> load;
+    // Shown as RPM on Delta V2 only.
     in property <string> fan;
+    // 0 = Alpha (temperature only), 1 = Delta V2 (temperature + fan speed)
+    in property <int> model: 0;
     in property <int> frame-index;
     in property <bool> sending;
 
@@ -228,7 +231,56 @@ component DisplayPreview inherits Rectangle {
         border-width: 3px;
         border-color: Palette.teal;
 
-        VerticalLayout {
+        // Delta V2: temperature on top, fan speed below, small logo top-left.
+        if root.model == 1 : Rectangle {
+            Text {
+                x: root.dia * 0.2; y: root.dia * 0.17;
+                text: "KALKAN";
+                color: white;
+                font-size: root.dia * 0.05;
+                font-weight: 800;
+                letter-spacing: root.dia * 0.008;
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: root.dia * 0.06;
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    Text {
+                        text: root.temp == "" ? "--" : root.temp;
+                        color: white;
+                        font-size: root.dia * 0.3;
+                        font-weight: 800;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        padding-top: root.dia * 0.04;
+                        Text { text: "°C"; color: white; font-size: root.dia * 0.09; font-weight: 700; }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    Text {
+                        text: root.fan == "" ? "--" : root.fan;
+                        color: white;
+                        font-size: root.dia * 0.15;
+                        font-weight: 700;
+                        font-family: "Consolas";
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        padding-bottom: root.dia * 0.02;
+                        Text { text: "RPM"; color: white; font-size: root.dia * 0.07; font-weight: 700; }
+                    }
+                }
+            }
+        }
+        // Alpha: temperature only.
+        if root.model == 0 : VerticalLayout {
             alignment: center;
             spacing: root.dia * 0.04;
             // seven-segment-ish digits with a small °C at the top right
@@ -269,6 +321,39 @@ component DisplayPreview inherits Rectangle {
         font-size: 12px;
         font-weight: 700;
         horizontal-alignment: center;
+    }
+}
+
+// ---------------------------------------------------------------- model toggle
+// Two-option segmented control (cooler model of the preview).
+component ModelToggle inherits Rectangle {
+    in property <int> current: 0;
+    callback picked(int);
+    height: 36px;
+    border-radius: 18px;
+    background: Palette.surface-2;
+    border-width: 1px;
+    border-color: Palette.line-strong;
+
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 3px;
+        for label[i] in ["Alpha", "Delta V2"] : Rectangle {
+            horizontal-stretch: 1;
+            border-radius: 15px;
+            background: root.current == i ? (t.has-hover ? Palette.accent-weak-hover : Palette.accent-weak)
+                      : t.has-hover ? Palette.hover : transparent;
+            animate background { duration: 120ms; }
+            Text {
+                text: label;
+                color: root.current == i ? Palette.accent : Palette.ink;
+                font-size: 13px;
+                font-weight: root.current == i ? 700 : 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            t := TouchArea { mouse-cursor: pointer; clicked => { root.picked(i); } }
+        }
     }
 }
 
@@ -540,6 +625,9 @@ export component AppWindow inherits Window {
     in property <string> prev-fan: "--";
     in property <int> prev-frame-index: 0;
     in property <bool> prev-sending: false;
+    // Cooler model the preview mimics: 0 = Alpha, 1 = Delta V2 (user's choice).
+    in-out property <int> model-index: 0;
+    callback model-changed(int);
 
     // ---- preferences ----
     in-out property <bool> autostart: false;
@@ -775,12 +863,20 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 0;
                         spacing: 10px;
                         Text { text: "SCREEN PREVIEW"; color: Palette.muted; font-size: 13px; font-weight: 700; letter-spacing: 0.4px; }
+                        Text { text: "COOLER MODEL"; color: Palette.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; }
+                        ModelToggle {
+                            current: root.model-index;
+                            picked(i) => { root.model-index = i; root.model-changed(i); }
+                        }
                         DisplayPreview {
+                            model: root.model-index;
                             temp: root.prev-temp; load: root.prev-load; fan: root.prev-fan;
                             frame-index: root.prev-frame-index; sending: root.prev-sending;
                         }
                         Text {
-                            text: "Matches the Alpha models' round display, which shows only the temperature.";
+                            text: root.model-index == 1
+                                ? "Delta V2 preview: the round display shows the temperature and the fan speed. The model can't be detected, so pick yours."
+                                : "Alpha preview: round display showing only the temperature. RPM and usage are still sent but not displayed. The model can't be detected, so pick yours.";
                             color: Palette.faint; font-size: 12px; font-weight: 500; wrap: word-wrap;
                         }
                         Rectangle { vertical-stretch: 1; }

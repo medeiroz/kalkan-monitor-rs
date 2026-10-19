@@ -10,13 +10,13 @@
 // In release, a windowed app (no console behind it); in debug the console stays, for logs.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
 use kalkan_core::{
     available_serial_ports, default_source, fan_options, select_fan, select_temp, temp_options,
-    FanSource, Fields, MaxTracker, Reading, Settings, same_layout, SourceOption, TempSource,
+    CoolerModel, FanSource, Fields, MaxTracker, Reading, Settings, same_layout, SourceOption, TempSource,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
 
@@ -498,6 +498,24 @@ fn main() -> anyhow::Result<()> {
         load: 0,
         max: MaxTracker::default(),
     }));
+    // Cooler model the preview mimics (cosmetic; persisted with the sources).
+    let model = Rc::new(Cell::new(saved.cooler_model));
+    ui.set_model_index(if saved.cooler_model == CoolerModel::DeltaV2 { 1 } else { 0 });
+    {
+        let (map, model) = (mapping.clone(), model.clone());
+        ui.on_model_changed(move |index| {
+            model.set(if index == 1 { CoolerModel::DeltaV2 } else { CoolerModel::Alpha });
+            let m = map.borrow();
+            let s = Settings {
+                temp_source: m.temp.clone(),
+                fan_source: m.fan.clone(),
+                cooler_model: model.get(),
+            };
+            if let Err(e) = s.save() {
+                eprintln!("could not save settings: {e}");
+            }
+        });
+    }
     let options = Rc::new(RefCell::new(Options::default()));
     refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &Reading::default());
     let last = Rc::new(RefCell::new(Reading::default()));
@@ -505,8 +523,14 @@ fn main() -> anyhow::Result<()> {
 
     // Callback: the user changed a field's source → recompute the preview right away.
     {
-        let (ui_w, map, lastr, framr, opts) =
-            (ui.as_weak(), mapping.clone(), last.clone(), frame.clone(), options.clone());
+        let (ui_w, map, lastr, framr, opts, model) = (
+            ui.as_weak(),
+            mapping.clone(),
+            last.clone(),
+            frame.clone(),
+            options.clone(),
+            model.clone(),
+        );
         ui.on_slot_changed(move |slot, index| {
             let index = index.max(0) as usize;
             {
@@ -526,7 +550,11 @@ fn main() -> anyhow::Result<()> {
                     _ => m.load = index,
                 }
                 if slot < 2 {
-                    let s = Settings { temp_source: m.temp.clone(), fan_source: m.fan.clone() };
+                    let s = Settings {
+                        temp_source: m.temp.clone(),
+                        fan_source: m.fan.clone(),
+                        cooler_model: model.get(),
+                    };
                     if let Err(e) = s.save() {
                         eprintln!("could not save settings: {e}");
                     }
