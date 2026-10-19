@@ -68,8 +68,8 @@ impl Transport for HidTransport {
 
 /// Serial / COM transport, for the models that use `QSerialPort`.
 pub struct SerialTransport {
-    port: Box<dyn serialport::SerialPort>,
-    label: String,
+    pub(crate) port: Box<dyn serialport::SerialPort>,
+    pub(crate) label: String,
 }
 
 impl SerialTransport {
@@ -81,28 +81,6 @@ impl SerialTransport {
         Ok(Self {
             port,
             label: format!("serial {path} @ {baud}"),
-        })
-    }
-
-    /// Opens the port with the 1.3 display's exact parameters.
-    ///
-    /// From `FUN_1400083d0`: 1 Mbps, 8 data bits, no parity, 1 stop bit, no flow
-    /// control (the `serialport` defaults are already 8N1/no flow control, but we
-    /// spell it out to match the original byte for byte).
-    pub fn open_display(path: &str) -> Result<Self> {
-        let path = crate::device::callout_path(path); // macOS: cu., not tty.
-        let path = path.as_str();
-        let port = serialport::new(path, crate::BAUD)
-            .data_bits(serialport::DataBits::Eight)
-            .parity(serialport::Parity::None)
-            .stop_bits(serialport::StopBits::One)
-            .flow_control(serialport::FlowControl::None)
-            .timeout(Duration::from_millis(100))
-            .open()
-            .map_err(|e| anyhow!(open_error_message(path, &e)))?;
-        Ok(Self {
-            port,
-            label: format!("serial {path} @ {} (Kalkan 1.3)", crate::BAUD),
         })
     }
 }
@@ -125,53 +103,5 @@ impl Transport for SerialTransport {
 
     fn description(&self) -> String {
         self.label.clone()
-    }
-}
-
-/// Message for a failed attempt to open the display's port. On Linux a
-/// permission error gets the fix: the udev rule or the `dialout` group.
-fn open_error_message(path: &str, e: &serialport::Error) -> String {
-    let denied = matches!(e.kind, serialport::ErrorKind::Io(std::io::ErrorKind::PermissionDenied))
-        || e.description.to_lowercase().contains("permission denied");
-    if denied && cfg!(target_os = "linux") {
-        permission_message(path)
-    } else {
-        format!("failed to open 1.3 display on {path}: {e}")
-    }
-}
-
-/// How to get access to the serial port on Linux.
-fn permission_message(path: &str) -> String {
-    format!(
-        "Permission denied opening {path}. Install the udev rule \
-         (60-kalkan-monitor.rules, included in the .deb) or add your user to the \
-         \"dialout\" group (\"uucp\" on Arch): sudo usermod -aG dialout $USER. \
-         Then replug the display (and log in again if you used the group)."
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn permission_error_explains_the_fix() {
-        let e = serialport::Error::new(
-            serialport::ErrorKind::Io(std::io::ErrorKind::PermissionDenied),
-            "Permission denied",
-        );
-        let msg = open_error_message("/dev/ttyUSB0", &e);
-        if cfg!(target_os = "linux") {
-            assert!(msg.contains("udev") && msg.contains("dialout") && msg.contains("/dev/ttyUSB0"));
-        } else {
-            assert!(msg.starts_with("failed to open 1.3 display on"));
-        }
-        assert!(permission_message("/dev/ttyACM0").contains("replug"));
-    }
-
-    #[test]
-    fn other_errors_keep_the_plain_message() {
-        let e = serialport::Error::new(serialport::ErrorKind::NoDevice, "gone");
-        assert!(open_error_message("COM5", &e).starts_with("failed to open 1.3 display on COM5"));
     }
 }
