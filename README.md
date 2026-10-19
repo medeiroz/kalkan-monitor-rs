@@ -21,9 +21,18 @@ The official Kalkan list (see [kalkan.com.br/cooler](https://www.kalkan.com.br/c
 | [Kalkan Delta V2 360](https://www.kalkan.com.br/produto/delta-v2-360) | KLK067 | 360 mm AIO watercooler, compatible by protocol; not yet tested on hardware |
 
 > [!WARNING]
-> (*) **The Alpha line (Alpha 240, 360 and 360-W) is supported only for units
-> purchased from January 2026 onward.** Units purchased before Jan/2026 are not
-> supported.
+> (*) **The Alpha line (Alpha 240, 360 and 360-W) is supported only for
+> Revision 2 units (firmware 1.3).** Kalkan says Alpha units purchased from
+> January 2026 onward are Rev.2 and units sold before Jan/2026 are Rev.1
+> (firmware 1.2, a different USB HID protocol, not supported yet; see the
+> [experimental 1.2 notes](docs/v1.2/protocol.md)). The purchase date is the
+> vendor's rule of thumb: the box label (serial above the barcode: SKU followed
+> by the manufacturing date as YYYYMMDD) is more precise. If the official
+> software leaves the display stuck at 88°, the other version is the right one
+> ([details](docs/v1.3/protocol.md#troubleshooting--which-version-do-i-have)).
+> The official "Kalkan PC SmartMonitor (Linha Alpha Rev.2) V1.3" installer was
+> verified statically to ship the exact same application binary (same SHA-256)
+> this protocol was derived from.
 
 **Alpha 240 / 360 / 360-W:** the **round display shows only the CPU
 temperature**. Fan RPM and load are not shown on the screen (the app still sends
@@ -40,8 +49,9 @@ reports are welcome: please open an issue with the output of `kalkan list`.
 
 > [!IMPORTANT]
 > **This repository targets version 1.3 of the Kalkan PC SmartMonitor
-> software/protocol**, used in products bought **from January 2026 onward**. Version 1.2 (older products)
-> uses a different protocol and is **not compatible** with this code — and vice
+> software/protocol**, used by Alpha Rev.2 units (bought **from January 2026
+> onward**, per Kalkan) and by the Delta V2. Version 1.2 (Alpha Rev.1, older
+> products) uses a different protocol ([notes](docs/v1.2/protocol.md)) and is **not compatible** with this code — and vice
 > versa. It is a fork adapted from the 1.2 repository.
 
 It is a Rust reimplementation of the driver + interface for the **Kalkan
@@ -86,6 +96,8 @@ docs/
   README.md      # documentation index
   v1.3/
     protocol.md  # reverse-engineering findings (reconstructed 1.3 protocol)
+  v1.2/
+    protocol.md  # 1.2 (HID) protocol notes: experimental, not implemented yet
 ```
 
 ## Install (Windows)

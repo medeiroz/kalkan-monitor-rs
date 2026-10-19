@@ -21,9 +21,18 @@ Lista oficial da Kalkan (veja [kalkan.com.br/cooler](https://www.kalkan.com.br/c
 | [Kalkan Delta V2 360](https://www.kalkan.com.br/produto/delta-v2-360) | KLK067 | Watercooler AIO de 360 mm, compatível por protocolo; ainda não testado em hardware |
 
 > [!WARNING]
-> (*) **A linha Alpha (Alpha 240, 360 e 360-W) é suportada apenas para unidades
-> compradas a partir de janeiro de 2026.** Unidades compradas antes de jan/2026
-> não são suportadas.
+> (*) **A linha Alpha (Alpha 240, 360 e 360-W) é suportada apenas para
+> unidades Revisão 2 (firmware 1.3).** Segundo a Kalkan, unidades Alpha
+> compradas a partir de janeiro de 2026 são Rev.2 e as vendidas antes de
+> jan/2026 são Rev.1 (firmware 1.2, outro protocolo USB HID, ainda não
+> suportado; veja as [notas experimentais da 1.2](docs/v1.2/protocol-PT.md)).
+> A data de compra é a regra prática do fabricante: a etiqueta da caixa (serial
+> acima do código de barras: SKU seguido da data de fabricação em AAAAMMDD) é
+> mais precisa. Se o software oficial deixa o display travado em 88°, a outra
+> versão é a certa ([detalhes](docs/v1.3/protocol-PT.md#solução-de-problemas--qual-versão-eu-tenho)).
+> Verificamos de forma estática que o instalador oficial "Kalkan PC
+> SmartMonitor (Linha Alpha Rev.2) V1.3" traz exatamente o mesmo binário (mesmo
+> SHA-256) do qual este protocolo foi derivado.
 
 **Alpha 240 / 360 / 360-W:** o **display redondo mostra apenas a temperatura da
 CPU**. RPM da ventoinha e uso (%) não aparecem na tela (o app ainda os envia no
@@ -41,8 +50,9 @@ Se você tem um Delta V2, relatos são bem-vindos: abra uma issue com a saída d
 
 > [!IMPORTANT]
 > **Este repositório é da versão 1.3 do software/protocolo Kalkan PC
-> SmartMonitor**, usada nos produtos comprados **a partir de janeiro/2026**. A versão 1.2 (produtos mais
-> antigos) usa um protocolo diferente e **não é compatível** com este código —
+> SmartMonitor**, usada pelas unidades Alpha Rev.2 (compradas **a partir de
+> janeiro/2026**, segundo a Kalkan) e pelo Delta V2. A versão 1.2 (Alpha Rev.1,
+> produtos mais antigos) usa um protocolo diferente ([notas](docs/v1.2/protocol-PT.md)) e **não é compatível** com este código —
 > e vice-versa. Fork adaptado do repositório 1.2.
 
 É uma reimplementação em Rust do driver + interface do protocolo **Kalkan
@@ -86,6 +96,8 @@ docs/
   README.md      # índice da documentação
   v1.3/
     protocol-PT.md # achados da engenharia reversa (protocolo 1.3 reconstruído)
+  v1.2/
+    protocol-PT.md # notas do protocolo 1.2 (HID): experimental, ainda não implementado
 ```
 
 ## Instalar (Windows)

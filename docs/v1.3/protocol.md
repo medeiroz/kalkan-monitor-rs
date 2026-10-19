@@ -2,8 +2,14 @@
 
 **English** | [Português (Brasil)](protocol-PT.md)
 
-Analyzed target: `Kalkan PC SmartMonitor DZ V1.3.exe` (products from
-Jan/2026). SHA-256 of the original binary: `faf27352654837fa95558c2b5f0e9db3755b763e2c08540fed15a7d37af39897`.
+Analyzed target: `Kalkan PC SmartMonitor DZ V1.3.exe` (Alpha line Rev.2, which
+the vendor says covers units purchased from Jan/2026, and Delta V2). SHA-256 of
+the original binary: `faf27352654837fa95558c2b5f0e9db3755b763e2c08540fed15a7d37af39897`.
+The official installers "Kalkan PC SmartMonitor (Linha Delta V2) V1.3" and
+"Kalkan PC SmartMonitor (Linha Alpha Rev.2) V1.3" (SHA-256
+`b98d03b730548a089716831f35e44e32a6e861889bde67b6aae96c82c94d1589`) both ship
+this exact binary (same SHA-256; checked by unpacking with `innoextract`, never
+executed).
 Tool: Ghidra 12.1.4 via REA. Everything below was **observed statically** in the
 binary (pseudocode + x86-64 assembly).
 
@@ -13,12 +19,12 @@ binary (pseudocode + x86-64 assembly).
 
 ## What changed from 1.2 to 1.3
 
-The 1.3 is **incompatible** with the 1.2 and **much simpler**:
+The 1.3 is **incompatible** with the 1.2 ([notes](../v1.2/protocol.md)) and **much simpler**:
 
 | Aspect | 1.2 | 1.3 |
 |---|---|---|
-| Transport | HID (`hidapi`) **and** serial | **Serial only** (`QSerialPort`) |
-| Device selection | VID/PID from config | VID/PID fixed in code (below) |
+| Transport | HID only (`hidapi`; its `QSerialPort` strings are unreferenced) | **Serial only** (`QSerialPort`) |
+| Device selection | VID:PID `0416:1100` fixed in code | VID/PID fixed in code (below) |
 | Serial parameters | — | **1 Mbps, 8N1, no flow control** |
 | Handshake / seed | packet `01 81 E3`, finds `0xE3` → seed | **none** |
 | Frame | 64 bytes `01 86 E0 idx temp fanHi fanLo cpu …` | **5 bytes** `74 00 temp fanHi fanLo` |
@@ -120,6 +126,35 @@ Nothing in the protocol **content** depends on observation anymore: frame, XOR,
 VID/PID and serial parameters are all reconstructed. The only step that needs
 the device is confirming that it enumerates with one of the VID/PIDs in
 [`DISPLAY_IDS`] (`kalkan list`), since the test cooler only exists in version 1.3.
+
+## Troubleshooting / which version do I have
+
+The vendor's `LEIA-ME.txt` (shipped with the Alpha installers, Portuguese)
+ties the software to the hardware revision:
+
+> "Kalkan PC SmartMonitor (Linha Alpha Rev.2) 1.3: Produtos da linha Alpha
+> comprados a partir de Janeiro/2026 são da Revisão 2."
+>
+> "Kalkan PC SmartMonitor (Linha Alpha) V1.2: Produtos da linha Alpha vendidos
+> antes de Janeiro/2026 são da Revisão 1."
+
+(Alpha units bought from January 2026 onward are Revision 2 → 1.3, this
+protocol; units sold before January 2026 are Revision 1 → [1.2](../v1.2/protocol.md).)
+The purchase date is the vendor's rule of thumb; the box label is more precise:
+the serial right above the barcode holds the SKU followed by the manufacturing
+date as year/month/day (vendor example: `KLK00047 - 20251106XXX`).
+
+If the display **stays stuck at 88°**, the vendor says the wrong version is
+installed:
+
+> "Caso execute o software e o mesmo não mostre a temperatura no visor, ficando
+> travado em 88°, desinstale a versão atual instalada e tente instalar a outra
+> versão disponível nesta pasta."
+
+(Uninstall the current version and install the other one; the vendor also asks
+to install and run its software as Administrator.) With this app: if
+`kalkan list` shows no port with `1F3A:0008` / `1A86:484A`, the cooler is
+probably a Rev.1 (1.2) unit, which is not supported yet.
 
 ## Note: anti-UAC (outside the protocol)
 
