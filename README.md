@@ -1,15 +1,33 @@
-# Kalkan Monitor RS
+# Kalkan Monitor RS: monitor for Kalkan Alpha 360, 360-W and 240 AIO watercoolers
 
 **English** | [Português (Brasil)](README-PT.md)
 
+Open-source, cross-platform (Windows / macOS / Linux) monitor for the **Kalkan
+Alpha 360**, **Kalkan Alpha 360-W** and **Kalkan Alpha 240** AIO liquid
+coolers. It reads your **CPU temperature** and shows it on the cooler's round
+LCD, as a free, open-source alternative to the official Kalkan PC SmartMonitor
+software. Written in Rust.
+
+## Supported coolers
+
+| Cooler | Notes |
+| --- | --- |
+| Kalkan Alpha 360 | 360 mm AIO watercooler with a round LCD |
+| Kalkan Alpha 360-W | White version of the Alpha 360 |
+| Kalkan Alpha 240 | 240 mm AIO watercooler with a round LCD |
+
+All three have a **round display that shows only the CPU temperature**. Fan
+RPM and load are not shown on the screen (the app still sends them in the
+protocol frame, but these models do not display them).
+
 > [!IMPORTANT]
-> **This repository targets version 1.3 of the Kalkan PC SmartMonitor**, used in
-> products bought **from January 2026 onward**. Version 1.2 (older products)
+> **This repository targets version 1.3 of the Kalkan PC SmartMonitor
+> software/protocol**, used in products bought **from January 2026 onward**. Version 1.2 (older products)
 > uses a different protocol and is **not compatible** with this code — and vice
 > versa. It is a fork adapted from the 1.2 repository.
 
-Cross-platform (Windows / macOS / Linux) Rust reimplementation of the driver +
-interface for the **Kalkan PC SmartMonitor 1.3** watercooler. A new project — it
+It is a Rust reimplementation of the driver + interface for the **Kalkan
+SmartMonitor 1.3** protocol used by these coolers. A new project — it
 is not the original `.exe` translated; it is a reconstruction based on reverse
 engineering its behavior (see [`docs/protocol.md`](docs/protocol.md)), with a
 new modern UI on top.

@@ -3,6 +3,10 @@ name = "kalkan-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Command-line utility for Kalkan Alpha 360 / 360-W / 240 watercoolers (SmartMonitor 1.3): list ports, read sensors, test the display"
+repository = "https://github.com/medeiroz/kalkan-monitor-rs-v1.3"
+keywords = ["kalkan", "watercooler", "aio", "cli"]
+categories = ["hardware-support", "command-line-utilities"]
 
 [[bin]]
 name = "kalkan"

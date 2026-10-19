@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=Kalkan Monitor
-GenericName=Cooler display monitor
-Comment=Drive the Kalkan PC SmartMonitor 1.3 cooler display
+GenericName=Watercooler display monitor
+Comment=Show the CPU temperature on Kalkan Alpha 360, 360-W and 240 watercoolers
 Exec=kalkan-monitor
 Icon=kalkan-monitor
 Terminal=false
 Categories=Utility;System;Monitor;
-Keywords=kalkan;cooler;watercooler;temperature;fan;
+Keywords=kalkan;alpha 360;alpha 240;cooler;watercooler;aio;smartmonitor;cpu;temperature;
 StartupWMClass=kalkan-monitor
