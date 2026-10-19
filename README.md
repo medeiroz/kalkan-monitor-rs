@@ -225,9 +225,10 @@ To build the installer locally: `./windows/installer/build.ps1 -Version 0.1.0`
 
 ### Publishing a release
 
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```
+Releases are automatic: every push to `main` whose Windows, Linux and macOS builds all succeed
+makes GitHub Actions create the tag `v<MAJOR.MINOR>.<run number>` (MAJOR.MINOR from the version in
+`Cargo.toml`) and the Release. Never push tags by hand. To bump MAJOR.MINOR, change `version` in
+`[workspace.package]`.
 
 GitHub Actions (`.github/workflows/release.yml`) builds the Windows installer,
 the Linux `.deb` and the macOS `.dmg` and creates the Release with them attached. Every push/PR runs the tests on Windows,

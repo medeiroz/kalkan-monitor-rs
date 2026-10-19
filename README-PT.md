@@ -227,9 +227,10 @@ Para gerar o instalador localmente: `./windows/installer/build.ps1 -Version 0.1.
 
 ### Publicar uma versão
 
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```
+As Releases são automáticas: todo push na `main` cujos builds de Windows, Linux e macOS passem
+faz o GitHub Actions criar a tag `v<MAJOR.MINOR>.<número da execução>` (MAJOR.MINOR vem da versão
+no `Cargo.toml`) e a Release. Nunca crie tags manualmente. Para mudar MAJOR.MINOR, altere `version`
+em `[workspace.package]`.
 
 O GitHub Actions (`.github/workflows/release.yml`) gera o instalador do Windows,
 o `.deb` do Linux e o `.dmg` do macOS e cria a Release com eles anexados. Todo push/PR roda os testes em Windows, Linux e macOS
