@@ -97,7 +97,6 @@ component StatusPill inherits Rectangle {
         spacing: 8px;
         padding-left: 13px;
         padding-right: 15px;
-        alignment: start;
         VerticalLayout {
             alignment: center;
             // connected = filled dot; others = hollow ring (shape + color)
@@ -116,6 +115,7 @@ component StatusPill inherits Rectangle {
             color: Palette.ink;
             font-size: 13px;
             font-weight: 700;
+            overflow: elide;
         }
     }
 }
@@ -151,14 +151,15 @@ component StatCard inherits Rectangle {
     in property <int> level;
     in property <color> tint;
 
-    min-width: 230px;
+    min-width: 170px;
+    horizontal-stretch: 1;
     background: Palette.surface;
     border-radius: 18px;
     border-width: 1px;
     border-color: Palette.line;
 
     VerticalLayout {
-        padding: 22px;
+        padding: 18px;
         spacing: 10px;
         alignment: start;
         Text {
@@ -167,6 +168,7 @@ component StatCard inherits Rectangle {
             font-size: 13px;
             font-weight: 700;
             letter-spacing: 0.4px;
+            overflow: elide;
         }
         HorizontalLayout {
             alignment: center;
@@ -174,7 +176,7 @@ component StatCard inherits Rectangle {
             Text {
                 text: root.value;
                 color: Palette.ink;
-                font-size: 42px;
+                font-size: 34px;
                 font-weight: 800;
             }
             Text {
@@ -193,6 +195,7 @@ component StatCard inherits Rectangle {
                  : Palette.faint;
             font-size: 12px;
             font-weight: 600;
+            wrap: word-wrap;
         }
     }
 }
@@ -392,6 +395,7 @@ component SlotEditor inherits VerticalLayout {
         font-size: 13px;
         font-weight: 700;
         letter-spacing: 0.4px;
+        overflow: elide;
     }
     Select {
         model: root.sources;
@@ -403,6 +407,7 @@ component SlotEditor inherits VerticalLayout {
         color: root.warn ? Palette.warn : Palette.faint;
         font-size: 12px;
         font-weight: 600;
+        wrap: word-wrap;
     }
 }
 
@@ -438,9 +443,14 @@ export component AppWindow inherits Window {
     title: "Kalkan Monitor";
     preferred-width: 980px;
     preferred-height: 600px;
-    min-width: 860px;
-    min-height: 520px;
+    // Compact layout (narrow window): stat cards and the display preview stack
+    // vertically, the sidebar shrinks, and the page scrolls vertically.
+    // Wide layout needs 200 (sidebar) + 2x24 (padding) + 3x170 (cards) + 2x18 = 794px.
+    min-width: 520px;
+    min-height: 420px;
     background: Palette.bg;
+    property <bool> compact: root.width < 800px;
+    property <length> side-w: root.compact ? 160px : 200px;
 
     // navigation
     in-out property <int> active-page: 0;   // 0 dashboard, 1 display, 2 device
@@ -494,15 +504,21 @@ export component AppWindow inherits Window {
     in property <string> autostart-error: "";
     callback autostart-toggled(bool);
 
+    // The layout is sized explicitly (not through the window's layout info) so
+    // that `compact`, which depends on the window width, creates no binding loop.
     HorizontalLayout {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
         // ============ sidebar ============
         Rectangle {
-            width: 220px;
+            width: root.side-w;
             background: Palette.surface-2;
             border-width: 1px;
             border-color: Palette.line;
             VerticalLayout {
-                padding: 24px;
+                padding: root.compact ? 14px : 18px;
                 spacing: 6px;
                 VerticalLayout {
                     padding-bottom: 14px;
@@ -535,14 +551,27 @@ export component AppWindow inherits Window {
         // ============ content ============
         Rectangle {
             background: Palette.bg;
-            VerticalLayout {
-                padding: 24px;
+            scroller := Flickable {
+                content-width: self.width;
+                content-height: max(self.height, page.preferred-height);
+                page := VerticalLayout {
+                // page content is capped at 1100px and centered on wide windows
+                x: 0;
+                y: 0;
+                width: scroller.content-width;
+                height: scroller.content-height;
+                padding-top: 24px;
+                padding-bottom: 24px;
+                padding-left: root.compact ? 16px : max(24px, (root.width - root.side-w - 1100px) / 2);
+                padding-right: root.compact ? 16px : max(24px, (root.width - root.side-w - 1100px) / 2);
                 spacing: 20px;
 
                 // ---- header ----
                 HorizontalLayout {
                     alignment: space-between;
+                    spacing: 12px;
                     Text {
+                        overflow: elide;
                         text: root.active-page == 0 ? "Dashboard"
                             : root.active-page == 1 ? "Cooler display"
                             : root.active-page == 2 ? "Device"
@@ -564,20 +593,23 @@ export component AppWindow inherits Window {
                 // ============ DASHBOARD ============
                 if root.active-page == 0 : VerticalLayout {
                     spacing: 18px;
-                    HorizontalLayout {
+                    GridLayout {
                         spacing: 18px;
                         vertical-stretch: 0;
                         StatCard {
+                            row: root.compact ? 0 : 0; col: 0;
                             label: "CPU USAGE"; value: root.cpu-load-str; unit: "%";
                             fraction: root.cpu-load / 100; level: root.cpu-level;
                             state-label: root.cpu-state; tint: Palette.accent;
                         }
                         StatCard {
+                            row: root.compact ? 1 : 0; col: root.compact ? 0 : 1;
                             label: "TEMPERATURE"; value: root.cpu-temp-str; unit: "°C";
                             fraction: root.temp-fraction; level: root.temp-level;
                             state-label: root.temp-state; tint: Palette.warm;
                         }
                         StatCard {
+                            row: root.compact ? 2 : 0; col: root.compact ? 0 : 2;
                             label: "FAN / PUMP"; value: root.fan-str; unit: "RPM";
                             fraction: root.fan-fraction; level: root.fan-level;
                             state-label: root.fan-state; tint: Palette.teal;
@@ -594,9 +626,12 @@ export component AppWindow inherits Window {
                             padding-left: 20px; padding-right: 16px; spacing: 10px;
                             alignment: space-between;
                             HorizontalLayout {
+                                horizontal-stretch: 1;
                                 spacing: 8px;
                                 Text { text: "On display:"; color: Palette.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
                                 Text {
+                                    horizontal-stretch: 1;
+                                    overflow: elide;
                                     text: root.prev-temp + "°C · " + root.prev-fan + " RPM · " + root.prev-load + "%";
                                     color: Palette.ink; font-size: 13px; font-weight: 700; vertical-alignment: center;
                                 }
@@ -622,14 +657,17 @@ export component AppWindow inherits Window {
                     }
                     // "no hardware" banner
                     if root.conn-state != ConnState.connected : Rectangle {
-                        height: 44px;
+                        min-height: 44px;
                         background: Palette.warn-weak;
                         border-radius: 12px;
                         HorizontalLayout {
                             padding-left: 16px;
+                            padding-right: 16px;
+                            padding-top: 10px;
+                            padding-bottom: 10px;
                             Text {
                                 text: "Running without a cooler — the sensors are the PC's; nothing is being sent to the display.";
-                                color: Palette.warn; font-size: 13px; font-weight: 600; vertical-alignment: center;
+                                color: Palette.warn; font-size: 13px; font-weight: 600; vertical-alignment: center; wrap: word-wrap;
                             }
                         }
                     }
@@ -637,11 +675,13 @@ export component AppWindow inherits Window {
                 }
 
                 // ============ DISPLAY ============
-                if root.active-page == 1 : HorizontalLayout {
+                if root.active-page == 1 : GridLayout {
                     spacing: 20px;
                     // left: the 3 slots
                     Rectangle {
+                        row: 0; col: 0;
                         horizontal-stretch: 1;
+                        vertical-stretch: 1;
                         background: Palette.surface;
                         border-radius: 18px;
                         border-width: 1px;
@@ -679,9 +719,12 @@ export component AppWindow inherits Window {
                             Rectangle { vertical-stretch: 1; }
                         }
                     }
-                    // right: preview
+                    // right: preview (below the slots when compact)
                     VerticalLayout {
-                        width: 320px;
+                        row: root.compact ? 1 : 0; col: root.compact ? 0 : 1;
+                        min-width: 260px;
+                        preferred-width: 320px;
+                        horizontal-stretch: 0;
                         spacing: 10px;
                         Text { text: "SCREEN PREVIEW"; color: Palette.muted; font-size: 13px; font-weight: 700; letter-spacing: 0.4px; }
                         DisplayPreview {
@@ -701,7 +744,7 @@ export component AppWindow inherits Window {
                 if root.active-page == 2 : VerticalLayout {
                     spacing: 18px;
                     Rectangle {
-                        height: 128px;
+                        min-height: 128px;
                         background: Palette.surface;
                         border-radius: 18px;
                         border-width: 1px;
@@ -714,8 +757,8 @@ export component AppWindow inherits Window {
                                 StatusPill { state: root.conn-state; }
                                 Rectangle { horizontal-stretch: 1; }
                             }
-                            Text { text: root.device-label; color: Palette.ink; font-size: 16px; font-weight: 800; }
-                            Text { text: root.device-detail; color: Palette.muted; font-size: 13px; font-weight: 600; }
+                            Text { text: root.device-label; color: Palette.ink; font-size: 16px; font-weight: 800; overflow: elide; }
+                            Text { text: root.device-detail; color: Palette.muted; font-size: 13px; font-weight: 600; wrap: word-wrap; }
                         }
                     }
                     if root.hid-error != "" : Rectangle {
@@ -801,6 +844,7 @@ export component AppWindow inherits Window {
                         }
                     }
                     Rectangle { vertical-stretch: 1; }
+                }
                 }
             }
         }
