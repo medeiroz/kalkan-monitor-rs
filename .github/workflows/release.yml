@@ -168,6 +168,10 @@ jobs:
             - **Linux**: `kalkan-monitor_${{ needs.version.outputs.version }}_amd64.deb`
             - **macOS**: `KalkanMonitor-${{ needs.version.outputs.version }}.dmg` (Apple Silicon and Intel)
 
-            Supports Kalkan Alpha Rev.2 (from Jan/2026) and Delta V2.
+            ## Supported coolers
+
+            - Kalkan Alpha 240 / 360 / 360-W, Rev.2 (from Jan/2026)
+            - Kalkan Delta V2 240 / 360 (compatible by protocol, not yet tested on hardware)
+            - Kalkan Alpha 240 / 360 / 360-W, Rev.1 (sold before Jan/2026): **experimental**, not yet tested on real hardware. Reports are welcome.
 
             ## Changes
