@@ -15,9 +15,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use kalkan_core::{
-    available_serial_ports, build_frame, default_source, fan_options, open_display, scramble,
-    select_fan, select_temp, temp_options, FanSource, MaxTracker, Reading, SerialTransport, Settings,
-    same_layout, SourceOption, TempSource, Transport,
+    available_serial_ports, default_source, fan_options, select_fan, select_temp, temp_options,
+    FanSource, Fields, MaxTracker, Reading, Settings, same_layout, SourceOption, TempSource,
 };
 use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
 
@@ -28,6 +27,7 @@ mod instance;
 mod macos;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 mod tray;
+mod worker;
 
 slint::include_modules!();
 
@@ -261,40 +261,24 @@ fn update_display(ui: &AppWindow, m: &Mapping, r: &Reading, frame_index: i32, se
     ui.set_prev_sending(sending);
 }
 
-/// Builds the 1.3 frame with the same values as the preview (`update_display`).
-fn display_frame(m: &Mapping, r: &Reading) -> Vec<u8> {
+/// The values sent to the display, converted exactly as the preview shows them
+/// (`update_display`); `kalkan-core` serializes them into the frame.
+fn display_fields(m: &Mapping, r: &Reading) -> Fields {
     let temp = temp_value(r, &m.temp, &m.max).map(|t| t.round().clamp(0.0, 255.0) as u8).unwrap_or(0);
     let fan = fan_value(r, &m.fan).map(|f| f.min(0xFFFF) as u16).unwrap_or(0);
-    scramble(&build_frame(temp, fan))
+    let load = load_value(r, m.load).map(|l| l.round().clamp(0.0, 100.0) as u8).unwrap_or(0);
+    Fields { temp, fan, load }
 }
 
-/// Sends a frame to the display, (re)opening the port when needed.
-///
-/// With no open port, tries `open_display()` on every tick (like the original,
-/// which reconnects by itself when the cooler is plugged in). A write error
-/// drops the connection; the next tick tries again.
-fn send_frame(ui: &AppWindow, port: &mut Option<SerialTransport>, pkt: &[u8]) {
-    if port.is_none() {
-        match open_display() {
-            Ok(t) => {
-                *port = Some(t);
-                ui.set_hid_error("".into());
-            }
-            Err(e) => {
-                ui.set_conn_state(ConnState::Disconnected);
-                ui.set_hid_error(format!("{e}").into());
-                return;
-            }
-        }
-    }
-    let Some(t) = port.as_mut() else { return };
-    match t.write(pkt) {
-        Ok(_) => ui.set_conn_state(ConnState::Connected),
-        Err(e) => {
-            *port = None;
-            ui.set_conn_state(ConnState::Error);
-            ui.set_hid_error(format!("Failed to send: {e}").into());
-        }
+/// Shows a status reported by the device worker (runs on the UI thread).
+fn apply_status(ui: &AppWindow, s: &worker::Status) {
+    ui.set_conn_state(match s.conn {
+        worker::Conn::Connected => ConnState::Connected,
+        worker::Conn::Disconnected => ConnState::Disconnected,
+        worker::Conn::Error => ConnState::Error,
+    });
+    if let Some(e) = &s.error {
+        ui.set_hid_error(e.as_str().into());
     }
 }
 
@@ -557,7 +541,15 @@ fn main() -> anyhow::Result<()> {
             frame.clone(),
             options.clone(),
         );
-        let mut port: Option<SerialTransport> = None;
+        // The device lives on its own thread, so blocking port I/O stays out of
+        // this timer: only plain values go over, and results come back through
+        // a weak handle, applied on the UI thread.
+        let device = {
+            let ui_w = ui.as_weak();
+            worker::Worker::spawn(move |status| {
+                let _ = ui_w.upgrade_in_event_loop(move |ui| apply_status(&ui, &status));
+            })
+        };
         timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(1000),
@@ -568,7 +560,7 @@ fn main() -> anyhow::Result<()> {
                 let fi = { let mut f = frame.borrow_mut(); *f = f.wrapping_add(1); *f };
                 if let Some(ui) = ui_w.upgrade() {
                     refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading);
-                    send_frame(&ui, &mut port, &display_frame(&mapping.borrow(), &reading));
+                    device.push(display_fields(&mapping.borrow(), &reading));
                     update_dashboard(&ui, &mapping.borrow(), &reading);
                     let sending = ui.get_conn_state() == ConnState::Connected;
                     update_display(&ui, &mapping.borrow(), &reading, fi, sending);
