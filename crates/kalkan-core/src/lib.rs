@@ -4,7 +4,7 @@
 //! temperature; Delta V2 is compatible by protocol but not yet hardware-tested.
 //!
 //! Rust reimplementation of the behavior observed in the original Windows app
-//! (see `docs/protocol.md`). Builds for Windows, macOS and Linux.
+//! (see `docs/v1.3/protocol.md`). Builds for Windows, macOS and Linux.
 //!
 //! The 1.3 talks to the cooler **over a serial port only** (USB-serial), unlike
 //! the 1.2, which also had an HID path. The device is found by VID/PID and

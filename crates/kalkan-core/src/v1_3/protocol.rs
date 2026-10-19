@@ -2,7 +2,7 @@
 //!
 //! **Version 1.3.** Fully reconstructed by static reverse engineering
 //! (Ghidra via REA) of the `Sysctl` class in the binary
-//! `Kalkan PC SmartMonitor DZ V1.3.exe`. See `docs/protocol.md` for the
+//! `Kalkan PC SmartMonitor DZ V1.3.exe`. See `docs/v1.3/protocol.md` for the
 //! addresses and the source pseudocode.
 //!
 //! The 1.3 protocol is **much simpler** than the 1.2 one and **incompatible**

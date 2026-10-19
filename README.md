@@ -47,7 +47,7 @@ reports are welcome: please open an issue with the output of `kalkan list`.
 It is a Rust reimplementation of the driver + interface for the **Kalkan
 SmartMonitor 1.3** protocol used by these coolers. A new project — it
 is not the original `.exe` translated; it is a reconstruction based on reverse
-engineering its behavior (see [`docs/protocol.md`](docs/protocol.md)), with a
+engineering its behavior (see [`docs/v1.3/protocol.md`](docs/v1.3/protocol.md)), with a
 new modern UI on top.
 
 ## Why it exists
@@ -60,7 +60,7 @@ scratch.
 
 ## What is different in 1.3
 
-Compared to 1.2, the 1.3 is **simpler** (details in `docs/protocol.md`):
+Compared to 1.2, the 1.3 is **simpler** (details in `docs/v1.3/protocol.md`):
 
 - **serial-only** transport (USB-serial), without the 1.2's HID path;
 - device found by **fixed VID/PID** (`1F3A:0008` or `1A86:484A`), opened at
@@ -83,7 +83,9 @@ windows/
 linux/          # .deb packaging files: udev rule, .desktop, icons, maintainer scripts
 macos/          # .app/.dmg packaging: Info.plist template + build.sh
 docs/
-  protocol.md    # reverse-engineering findings (reconstructed 1.3 protocol)
+  README.md      # documentation index
+  v1.3/
+    protocol.md  # reverse-engineering findings (reconstructed 1.3 protocol)
 ```
 
 ## Install (Windows)

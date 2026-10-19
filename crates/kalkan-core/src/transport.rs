@@ -1,7 +1,7 @@
 //! Transport layers for the watercooler display.
 //!
 //! The **1.3** talks to the device over a **serial port only** (`QSerialPort`,
-//! class `Transport` in the binary; see `docs/protocol.md`). Use
+//! class `Transport` in the binary; see `docs/v1.3/protocol.md`). Use
 //! [`SerialTransport::open_display`] for the cooler's exact parameters.
 //!
 //! [`HidTransport`] is kept as a 1.2 legacy / diagnostics path; the 1.3 does

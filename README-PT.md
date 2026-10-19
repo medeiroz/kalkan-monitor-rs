@@ -48,7 +48,7 @@ Se você tem um Delta V2, relatos são bem-vindos: abra uma issue com a saída d
 É uma reimplementação em Rust do driver + interface do protocolo **Kalkan
 SmartMonitor 1.3** usado por esses coolers. Projeto novo — não é o
 `.exe` original traduzido; é uma reconstrução baseada em engenharia reversa do
-comportamento dele (ver [`docs/protocol-PT.md`](docs/protocol-PT.md)), com uma UI
+comportamento dele (ver [`docs/v1.3/protocol-PT.md`](docs/v1.3/protocol-PT.md)), com uma UI
 moderna nova por cima.
 
 ## Por que existe
@@ -60,7 +60,7 @@ vira um núcleo portátil, e a interface é refeita do zero.
 
 ## O que é diferente na 1.3
 
-Comparada à 1.2, a 1.3 é **mais simples** (detalhes em `docs/protocol-PT.md`):
+Comparada à 1.2, a 1.3 é **mais simples** (detalhes em `docs/v1.3/protocol-PT.md`):
 
 - transporte **só serial** (USB-serial), sem o caminho HID da 1.2;
 - dispositivo achado por **VID/PID fixos** (`1F3A:0008` ou `1A86:484A`), aberto
@@ -83,7 +83,9 @@ windows/
 linux/          # arquivos do pacote .deb: regra udev, .desktop, ícones, scripts
 macos/          # empacotamento .app/.dmg: modelo do Info.plist + build.sh
 docs/
-  protocol-PT.md # achados da engenharia reversa (protocolo 1.3 reconstruído)
+  README.md      # índice da documentação
+  v1.3/
+    protocol-PT.md # achados da engenharia reversa (protocolo 1.3 reconstruído)
 ```
 
 ## Instalar (Windows)
