@@ -7,5 +7,5 @@ Exec=kalkan-monitor
 Icon=kalkan-monitor
 Terminal=false
 Categories=Utility;System;Monitor;
-Keywords=kalkan;alpha 240;alpha 360;alpha 360-w;delta v2;delta v2 240;delta v2 360;cooler;watercooler;aio;smartmonitor;cpu;temperature;
+Keywords=kalkan;alpha 240;alpha 360;alpha 360-w;alpha rev.1;delta v2;delta v2 240;delta v2 360;cooler;watercooler;aio;smartmonitor;cpu;temperature;
 StartupWMClass=kalkan-monitor

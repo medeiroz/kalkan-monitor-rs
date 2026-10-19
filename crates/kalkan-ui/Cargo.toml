@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Monitor for Kalkan Alpha 240 / 360 / 360-W and Delta V2 240 / 360 AIO watercoolers: sends the CPU temperature to the cooler display (Kalkan SmartMonitor 1.3)"
+description = "Monitor for Kalkan Alpha 240 / 360 / 360-W and Delta V2 240 / 360 AIO watercoolers: sends the CPU temperature to the cooler display (Kalkan SmartMonitor 1.3; Alpha Rev.1 / SmartMonitor 1.2 experimental)"
 repository = "https://github.com/medeiroz/kalkan-monitor-rs-v1.3"
 keywords = ["kalkan", "delta-v2", "alpha", "watercooler", "smartmonitor"]
 categories = ["hardware-support"]
@@ -46,7 +46,11 @@ extended-description = """\
 Sends the CPU temperature to the display of Kalkan Alpha 240, Alpha 360 and \
 Alpha 360-W (round LCD, temperature only) and Delta V2 240 and Delta V2 360 \
 AIO watercoolers (Kalkan SmartMonitor 1.3 protocol) over the cooler's USB \
-serial port. Delta V2 is compatible by protocol but not yet tested on hardware. Sensors come from the kernel hwmon interface. A udev rule grants the logged-in user access to the display."""
+serial port. Delta V2 is compatible by protocol but not yet tested on hardware. \
+Older Alpha Rev.1 units (sold before Jan/2026, SmartMonitor 1.2 over USB HID) \
+are supported experimentally, not yet tested on hardware. Sensors come from \
+the kernel hwmon interface. A udev rule grants the logged-in user access to \
+the display (serial port or hidraw node)."""
 maintainer-scripts = "../../linux/debian"
 assets = [
     ["target/release/kalkan-monitor", "usr/bin/", "755"],

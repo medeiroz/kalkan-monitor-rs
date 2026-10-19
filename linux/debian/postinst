@@ -4,8 +4,10 @@ set -e
 
 if [ "$1" = "configure" ] && command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
-    # Re-evaluate serial ports that are already plugged in.
+    # Re-evaluate displays that are already plugged in: serial ports
+    # (firmware 1.3) and hidraw nodes (firmware 1.2).
     udevadm trigger --subsystem-match=tty --action=add || true
+    udevadm trigger --subsystem-match=hidraw --action=add || true
 fi
 
 #DEBHELPER#
