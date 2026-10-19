@@ -536,6 +536,23 @@ component SlotEditor inherits VerticalLayout {
 }
 
 // ---------------------------------------------------------------- toggle switch
+// Shown on Windows when the app runs without administrator rights.
+component ElevationWarning inherits Rectangle {
+    min-height: 52px;
+    background: Palette.warn-weak;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Palette.warn.with-alpha(0.4);
+    VerticalLayout {
+        padding: 14px;
+        padding-left: 16px;
+        Text {
+            text: "Running without administrator rights — some sensors and the autostart task may be unavailable. Restart the app and accept the prompt.";
+            color: Palette.warn; font-size: 13px; font-weight: 600; vertical-alignment: center; wrap: word-wrap;
+        }
+    }
+}
+
 component Toggle inherits Rectangle {
     in-out property <bool> checked;
     callback toggled(bool);
@@ -607,6 +624,8 @@ export component AppWindow inherits Window {
     in property <string> firmware-hint: "";    // friendly model text
     in property <string> firmware-short: "";   // "Firmware 1.3"
     in property <string> hid-error: "";
+    // Windows only: the UAC prompt was declined, so the app runs degraded.
+    in property <bool> not-elevated: false;
 
     // ---- display config ----
     in property <[SourceItem]> temp-sources;
@@ -929,6 +948,7 @@ export component AppWindow inherits Window {
                             if root.firmware-hint != "" : Text { text: root.firmware-hint; color: Palette.faint; font-size: 13px; font-weight: 500; wrap: word-wrap; }
                         }
                     }
+                    if root.not-elevated : ElevationWarning { }
                     if root.hid-error != "" : Rectangle {
                         min-height: 52px;
                         background: Palette.danger-weak;
@@ -963,6 +983,7 @@ export component AppWindow inherits Window {
                 // ============ SETTINGS ============
                 if root.active-page == 3 : VerticalLayout {
                     spacing: 18px;
+                    if root.not-elevated : ElevationWarning { }
                     Rectangle {
                         background: Palette.surface;
                         border-radius: 18px;

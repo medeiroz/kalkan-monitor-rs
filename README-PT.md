@@ -284,6 +284,11 @@ Build no macOS (precisa das Xcode command line tools) e do app/imagem de disco:
       HVCI), do **motor HWiNFO do app original** (`config.dat`, se instalado) e do
       **HWiNFO Shared Memory**. CPU/RAM load vêm do `sysinfo`. A UI se auto-eleva
       (UAC), como o original. Ver [`docs/sensors-windows-PT.md`](docs/sensors-windows-PT.md).
+- [x] **Direitos de administrador (Windows)**: ao iniciar, o app pede
+      elevação (UAC), pois o driver de sensores e a tarefa agendada de
+      inicialização automática precisam de um processo elevado. Se você
+      recusar, ele continua sem isso e mostra um aviso em Dispositivo e
+      Configurações; reinicie o app e aceite o prompt.
 - [x] **Escolha de fonte**: define qual sensor alimenta os campos de temperatura e RPM do display (Auto, Max CPU/GPU ou qualquer sensor de temp/ventoinha); salva em `%APPDATA%\KalkanMonitor\settings.json`. Veja [`docs/sensors-windows-PT.md`](docs/sensors-windows-PT.md).
 - [x] **Instalador** (Inno Setup, PawnIO embutido) e **CI/CD** no GitHub Actions.
 - [x] **Linux**: sensores via hwmon (+ `nvidia-smi`), bandeja por StatusNotifier

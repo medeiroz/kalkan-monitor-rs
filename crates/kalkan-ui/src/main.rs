@@ -21,6 +21,7 @@ use kalkan_core::{
 use slint::{ComponentHandle, Model, SharedString, Timer, VecModel};
 
 mod autostart;
+mod elevation;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 mod instance;
 #[cfg(target_os = "macos")]
@@ -295,98 +296,6 @@ fn apply_status(ui: &AppWindow, s: &worker::Status) {
     }
 }
 
-/// On Windows, makes sure the app runs elevated (like the original): if it is
-/// not, relaunches itself via UAC and exits the current instance. The elevated
-/// process is the one able to load the sensor sidecar's kernel driver. If the
-/// user declines the UAC prompt, it carries on without elevation (sensors fall
-/// back). Set `KALKAN_NO_ELEVATE=1` to disable (development).
-#[cfg(windows)]
-fn ensure_elevated() {
-    use core::ffi::c_void;
-    use std::os::windows::ffi::OsStrExt;
-
-    const TOKEN_QUERY: u32 = 0x0008;
-    const TOKEN_ELEVATION: i32 = 20;
-    const SW_SHOWNORMAL: i32 = 1;
-
-    #[link(name = "advapi32")]
-    extern "system" {
-        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
-        fn GetTokenInformation(
-            token: *mut c_void,
-            class: i32,
-            info: *mut c_void,
-            len: u32,
-            ret_len: *mut u32,
-        ) -> i32;
-    }
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetCurrentProcess() -> *mut c_void;
-        fn CloseHandle(h: *mut c_void) -> i32;
-    }
-    #[link(name = "shell32")]
-    extern "system" {
-        fn ShellExecuteW(
-            hwnd: *mut c_void,
-            op: *const u16,
-            file: *const u16,
-            params: *const u16,
-            dir: *const u16,
-            show: i32,
-        ) -> *mut c_void;
-    }
-
-    // SAFETY: standard FFI calls; we handle return values and close the token.
-    unsafe {
-        let mut token: *mut c_void = core::ptr::null_mut();
-        let mut elevated = false;
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) != 0 {
-            let mut elev: u32 = 0;
-            let mut ret_len: u32 = 0;
-            if GetTokenInformation(
-                token,
-                TOKEN_ELEVATION,
-                &mut elev as *mut u32 as *mut c_void,
-                4,
-                &mut ret_len,
-            ) != 0
-            {
-                elevated = elev != 0;
-            }
-            CloseHandle(token);
-        }
-        if elevated || std::env::var_os("KALKAN_NO_ELEVATE").is_some() {
-            return;
-        }
-        let Ok(exe) = std::env::current_exe() else { return };
-        let mut file: Vec<u16> = exe.as_os_str().encode_wide().collect();
-        file.push(0);
-        let mut op: Vec<u16> = "runas".encode_utf16().collect();
-        op.push(0);
-        // Forward the arguments (e.g. `--tray`) to the elevated instance.
-        let args: Vec<String> = std::env::args().skip(1).map(|a| format!("\"{a}\"")).collect();
-        let mut params: Vec<u16> = args.join(" ").encode_utf16().collect();
-        params.push(0);
-        let r = ShellExecuteW(
-            core::ptr::null_mut(),
-            op.as_ptr(),
-            file.as_ptr(),
-            params.as_ptr(),
-            core::ptr::null(),
-            SW_SHOWNORMAL,
-        );
-        // ShellExecuteW returns > 32 on success: the elevated instance took over.
-        if (r as isize) > 32 {
-            std::process::exit(0);
-        }
-        // Declined/failed: carry on without elevation.
-    }
-}
-
-#[cfg(not(windows))]
-fn ensure_elevated() {}
-
 fn main() -> anyhow::Result<()> {
     // winit needs this thread to be an STA (OleInitialize) when it creates the
     // window, but sysinfo's WMI access (inside `default_source()`) would
@@ -413,9 +322,16 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    ensure_elevated();
+    // Windows: relaunch elevated (UAC) and exit before any window, tray icon or
+    // instance lock exists, so the elevated copy can claim them. A declined
+    // prompt runs degraded, with a warning in the UI.
+    let elev = elevation::ensure();
+    if elev == elevation::Outcome::Relaunched {
+        return Ok(());
+    }
     let start_hidden = std::env::args().any(|a| a == autostart::TRAY_ARG);
     let ui = AppWindow::new()?;
+    ui.set_not_elevated(elev == elevation::Outcome::Degraded);
 
     // Brings the window back (from the tray or from a second instance); safe
     // to call from any thread.
