@@ -1,4 +1,5 @@
-//! Device discovery — serial ports (1.3) and HID (legacy/diagnostics).
+//! Device discovery — serial ports (firmware 1.3) and HID (firmware 1.2,
+//! implemented in `v1_2::hid`).
 //!
 //! The 1.3 talks over a **USB serial port**. The original app finds the cooler
 //! by enumerating `QSerialPortInfo::availablePorts()` and matching by VID/PID
@@ -74,47 +75,8 @@ pub fn is_display_port(info: &SerialDeviceInfo) -> bool {
     info.is_display()
 }
 
-// -- HID (legacy 1.2 / diagnostics) ------------------------------------------
+// -- HID (firmware 1.2) -------------------------------------------------------
 
-/// An HID device seen in the system enumeration (cross-platform).
-#[derive(Debug, Clone)]
-pub struct HidDeviceInfo {
-    pub vendor_id: u16,
-    pub product_id: u16,
-    pub manufacturer: Option<String>,
-    pub product: Option<String>,
-    pub serial_number: Option<String>,
-    pub path: String,
-}
-
-/// Lists all HID devices on the system.
-///
-/// The 1.3 does not use HID (the transport is serial); this stays as a
-/// diagnostic tool, useful when inspecting unknown hardware.
-pub fn enumerate() -> Result<Vec<HidDeviceInfo>> {
-    let api = hidapi::HidApi::new()?;
-    Ok(api
-        .device_list()
-        .map(|d| HidDeviceInfo {
-            vendor_id: d.vendor_id(),
-            product_id: d.product_id(),
-            manufacturer: d.manufacturer_string().map(str::to_owned),
-            product: d.product_string().map(str::to_owned),
-            serial_number: d.serial_number().map(str::to_owned),
-            path: d.path().to_string_lossy().into_owned(),
-        })
-        .collect())
-}
-
-/// Heuristic to highlight "cooler display" candidates in an HID list.
-pub fn looks_like_display(info: &HidDeviceInfo) -> bool {
-    let hay = format!(
-        "{} {}",
-        info.manufacturer.as_deref().unwrap_or(""),
-        info.product.as_deref().unwrap_or("")
-    )
-    .to_lowercase();
-    ["lcd", "screen", "display", "monitor", "vtf", "com"]
-        .iter()
-        .any(|k| hay.contains(k))
-}
+// Firmware 1.2 HID items (implemented in `v1_2::hid`), kept reachable at their
+// historical paths.
+pub use crate::v1_2::hid::{enumerate, looks_like_display, HidDeviceInfo};
