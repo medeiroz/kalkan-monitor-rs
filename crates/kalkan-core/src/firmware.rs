@@ -26,8 +26,8 @@ impl Firmware {
     /// Which products use this firmware, in user-friendly words.
     pub fn models_hint(&self) -> &'static str {
         match self {
-            Firmware::V1_2 => "Alpha (purchased before Jan/2026) \u{2014} experimental",
-            Firmware::V1_3 => "Alpha (purchased from Jan/2026) or Delta V2",
+            Firmware::V1_2 => "Alpha Rev.1 (sold before Jan/2026) \u{2014} experimental",
+            Firmware::V1_3 => "Alpha Rev.2 (from Jan/2026) or Delta V2",
         }
     }
 }
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn models_hint_and_profile_lookup() {
-        assert_eq!(Firmware::V1_3.models_hint(), "Alpha (purchased from Jan/2026) or Delta V2");
+        assert_eq!(Firmware::V1_3.models_hint(), "Alpha Rev.2 (from Jan/2026) or Delta V2");
         assert!(Firmware::V1_2.models_hint().contains("experimental"));
         let (v, p) = crate::v1_3::IDS[0];
         assert_eq!(profile_for(v, p).map(|p| p.firmware), Some(Firmware::V1_3));
