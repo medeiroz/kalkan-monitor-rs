@@ -192,7 +192,8 @@ sidecar/
   kalkan-sensord/ # Windows sensors via LibreHardwareMonitor (.NET)
 windows/
   installer/    # Windows installer (Inno Setup) + build.ps1
-linux/          # .deb packaging files: udev rule, .desktop, icons, maintainer scripts
+linux/          # .deb packaging files: udev rule, .desktop, maintainer scripts
+assets/icons/   # app icon: kalkan-monitor.svg is the source; run generate.sh for the rest
 macos/          # .app/.dmg packaging: Info.plist template + build.sh
 docs/
   README.md      # documentation index

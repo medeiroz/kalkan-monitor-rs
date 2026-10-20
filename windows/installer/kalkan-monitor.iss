@@ -36,6 +36,7 @@ OutputBaseFilename=KalkanMonitor-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\assets\icons\kalkan-monitor.ico
 UninstallDisplayIcon={app}\kalkan-monitor.exe
 CloseApplications=yes
 

@@ -22,6 +22,10 @@ dirs.workspace = true
 [build-dependencies]
 slint-build = "1.8.0"
 
+# Embeds the app icon in the Windows .exe (Explorer, taskbar, shortcuts).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 # System tray. Windows/macOS use the native one. Linux publishes a
 # StatusNotifierItem over D-Bus (`ksni` backend), which needs no GTK or
 # appindicator system libraries; `zbus` is used to detect whether the desktop
@@ -55,7 +59,7 @@ maintainer-scripts = "../../linux/debian"
 assets = [
     ["target/release/kalkan-monitor", "usr/bin/", "755"],
     ["../../linux/kalkan-monitor.desktop", "usr/share/applications/", "644"],
-    ["../../linux/icons/kalkan-monitor.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
-    ["../../linux/icons/kalkan-monitor.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["../../assets/icons/kalkan-monitor.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["../../assets/icons/kalkan-monitor.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["../../linux/udev/60-kalkan-monitor.rules", "usr/lib/udev/rules.d/", "644"],
 ]

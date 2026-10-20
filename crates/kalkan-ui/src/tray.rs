@@ -66,29 +66,15 @@ pub fn create(show: impl Fn() + Clone + Send + Sync + 'static) -> Result<TrayIco
     Ok(builder.build()?)
 }
 
-/// 32×32 icon drawn in code (accent disc with a white thermometer), so there
-/// is no image asset to ship.
+/// 32×32 app icon (red gauge with a thermometer on black), raw RGBA rendered
+/// from `assets/icons/kalkan-monitor.svg`.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn icon() -> Result<Icon> {
-    const N: usize = 32;
-    let mut rgba = vec![0u8; N * N * 4];
-    let c = (N as f32 - 1.0) / 2.0;
-    for y in 0..N {
-        for x in 0..N {
-            let (fx, fy) = (x as f32, y as f32);
-            let disc = ((fx - c).powi(2) + (fy - c).powi(2)).sqrt() <= 15.5;
-            // thermometer: vertical stem + bulb
-            let stem = (fx - c).abs() <= 2.5 && (6.0..=20.0).contains(&fy);
-            let bulb = ((fx - c).powi(2) + (fy - 22.0).powi(2)).sqrt() <= 5.0;
-            let px = match (disc, stem || bulb) {
-                (true, true) => [0xff, 0xff, 0xff, 0xff],
-                (true, false) => [0x2f, 0x6d, 0xf6, 0xff], // Palette.accent
-                _ => [0, 0, 0, 0],
-            };
-            rgba[(y * N + x) * 4..][..4].copy_from_slice(&px);
-        }
-    }
-    Ok(Icon::from_rgba(rgba, N as u32, N as u32)?)
+    Ok(Icon::from_rgba(
+        include_bytes!("../../../assets/icons/tray-32.rgba").to_vec(),
+        32,
+        32,
+    )?)
 }
 
 /// Monochrome thermometer for the macOS menu bar: black with an alpha

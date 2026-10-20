@@ -47,12 +47,12 @@ lipo -info "$APP/Contents/MacOS/kalkan-monitor"
 sed "s/@VERSION@/$VERSION/g" macos/Info.plist.in > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist"
 
-# Icon: .icns generated from the Linux PNG (256 px; the 512 px sizes are scaled up).
+# Icon: .icns generated from the 1024 px PNG.
 ICONSET="$OUT/kalkan-monitor.iconset"
 mkdir -p "$ICONSET"
 for s in 16 32 128 256 512; do
-  sips -z "$s" "$s" linux/icons/kalkan-monitor.png --out "$ICONSET/icon_${s}x${s}.png" > /dev/null
-  sips -z "$((s * 2))" "$((s * 2))" linux/icons/kalkan-monitor.png --out "$ICONSET/icon_${s}x${s}@2x.png" > /dev/null
+  sips -z "$s" "$s" assets/icons/kalkan-monitor-1024.png --out "$ICONSET/icon_${s}x${s}.png" > /dev/null
+  sips -z "$((s * 2))" "$((s * 2))" assets/icons/kalkan-monitor-1024.png --out "$ICONSET/icon_${s}x${s}@2x.png" > /dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/kalkan-monitor.icns"
 rm -rf "$ICONSET"
