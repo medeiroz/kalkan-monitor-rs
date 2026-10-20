@@ -17,7 +17,7 @@ official Kalkan PC SmartMonitor software.
 ## Download
 
 Get the latest version from the
-**[Releases page](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases/latest)**
+**[Releases page](https://github.com/medeiroz/kalkan-monitor-rs/releases/latest)**
 (open **Assets** and pick the file for your system):
 
 | System | File to download | Notes |
@@ -206,7 +206,7 @@ docs/
 ## Install (Windows)
 
 Download `KalkanMonitor-Setup-<version>.exe` from
-[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases). It installs the
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs/releases). It installs the
 dashboard, the sensor sidecar and the **PawnIO** driver (needed to read
 temperature/fan, including with Memory Integrity turned on). Nothing else to
 install separately.
@@ -246,7 +246,7 @@ Linux and macOS (`ci.yml`).
 ## Install (Linux)
 
 Download `kalkan-monitor_<version>_amd64.deb` from
-[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases) and install it:
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs/releases) and install it:
 
 ```bash
 sudo apt install ./kalkan-monitor_<version>_amd64.deb
@@ -299,7 +299,7 @@ Opening the app while it is already running just shows its window (a socket in
 ## Install (macOS)
 
 Download `KalkanMonitor-<version>.dmg` from
-[Releases](https://github.com/medeiroz/kalkan-monitor-rs-v1.3/releases), open it
+[Releases](https://github.com/medeiroz/kalkan-monitor-rs/releases), open it
 and drag **Kalkan Monitor** to **Applications**. It is a universal app (Apple
 Silicon and Intel) for macOS 11 or later. Run it from Applications, not from the
 disk image, so that "start with the operating system" can find it.
