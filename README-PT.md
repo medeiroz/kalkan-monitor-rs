@@ -41,6 +41,24 @@ abra-o a partir de lá. Na primeira vez, o macOS pode dizer que o app é de um
 "desenvolvedor não identificado": clique com o botão direito no app, escolha
 **Abrir** e depois **Abrir** de novo (detalhes em [Instalar (macOS)](#instalar-macos)).
 
+## Política de assinatura de código
+
+Assinatura de código gratuita fornecida pela [SignPath.io](https://signpath.io),
+certificado da [SignPath Foundation](https://signpath.org). A assinatura está
+sendo configurada: até a SignPath Foundation aprovar este projeto, as versões
+para Windows não são assinadas e o SmartScreen pode avisar sobre editor desconhecido.
+
+- **Arquivos assinados:** os binários do Windows (`kalkan-monitor.exe`, `kalkan-sensord.exe`)
+  e o instalador, compilados a partir deste repositório pelo workflow do GitHub Actions
+  [`release.yml`](.github/workflows/release.yml). Nada é assinado a partir de uma máquina local.
+- **Papéis:** committers, revisores e aprovadores são o dono do repositório,
+  [@medeiroz](https://github.com/medeiroz). As contribuições são integradas só pelo dono.
+- **Componentes de terceiros:** o instalador do driver PawnIO é baixado da release
+  oficial, verificado por um SHA-256 fixo e mantido com a assinatura original;
+  não é reassinado.
+- **Privacidade:** este programa não coleta nem transmite nenhum dado. Ele lê os
+  sensores locais e fala apenas com o cooler por USB; não faz conexões de rede.
+
 ## Coolers suportados
 
 Lista oficial da Kalkan (veja [kalkan.com.br/cooler](https://www.kalkan.com.br/cooler)):
