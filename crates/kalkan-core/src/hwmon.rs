@@ -414,13 +414,17 @@ impl Default for LinuxSource {
 
 impl SensorSource for LinuxSource {
     fn read(&mut self) -> Result<Reading> {
-        let mut r = self.sys.read()?;
+        let mut r = self.sys.read_load();
         let found = read_hwmon(&self.root);
-        // sysinfo's guess stays as the fallback when no hwmon CPU sensor exists.
+        // sysinfo's guess is the fallback when no hwmon CPU sensor exists; it
+        // is only read then, since refreshing its components is the costly part.
         // The ids name the picked sensors; with no hwmon CPU sensor there is
         // no id and the label stays generic.
         let temp = pick_cpu_temp_sensor(&found);
-        r.cpu_temp_c = temp.map(|s| s.sensor.value).or(r.cpu_temp_c);
+        match temp {
+            Some(t) => r.cpu_temp_c = Some(t.sensor.value),
+            None => self.sys.fill_cpu_temp(&mut r),
+        }
         r.cpu_temp_id = temp.map(|s| s.sensor.id.clone());
         let fan = pick_fan_sensor(&found);
         r.fan_rpm = fan.map(|s| s.sensor.value.round() as u32);

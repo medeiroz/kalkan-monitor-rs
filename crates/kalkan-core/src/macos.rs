@@ -474,13 +474,20 @@ impl Default for MacSource {
 
 impl SensorSource for MacSource {
     fn read(&mut self) -> Result<Reading> {
-        let mut r = self.sys.read()?;
-        let Some(backend) = self.backend.as_mut() else { return Ok(r) };
+        let mut r = self.sys.read_load();
+        let Some(backend) = self.backend.as_mut() else {
+            self.sys.fill_cpu_temp(&mut r);
+            return Ok(r);
+        };
         let s = backend.sample();
         let sensors = build_sensors(&self.chip, &s.hid, &s.smc_temps, &s.fans);
-        // sysinfo's guess stays as the fallback when IOKit has no CPU sensor.
+        // sysinfo's guess is the fallback when IOKit has no CPU sensor; it is
+        // only read then, since refreshing its components is the costly part.
         let temp = pick_cpu_temp_sensor(&sensors);
-        r.cpu_temp_c = temp.map(|s| s.value).or(r.cpu_temp_c);
+        match temp {
+            Some(t) => r.cpu_temp_c = Some(t.value),
+            None => self.sys.fill_cpu_temp(&mut r),
+        }
         r.cpu_temp_id = temp.map(|s| s.id.clone());
         let fan = pick_fan_sensor(&sensors);
         r.fan_rpm = fan.map(|s| s.value.round().max(0.0) as u32);

@@ -135,8 +135,10 @@ impl Default for SysinfoSource {
     }
 }
 
-impl SensorSource for SysinfoSource {
-    fn read(&mut self) -> Result<Reading> {
+impl SysinfoSource {
+    /// CPU and RAM usage only: the cheap part of a reading. The thermal
+    /// components are left out (`cpu_temp_c` is `None`); see [`Self::fill_cpu_temp`].
+    pub fn read_load(&mut self) -> Reading {
         self.sys.refresh_cpu_usage();
         let cpu_load = self.sys.global_cpu_usage();
 
@@ -148,19 +150,32 @@ impl SensorSource for SysinfoSource {
             0.0
         };
 
-        self.components.refresh(false);
-        let cpu_temp_c = self.cpu_temperature();
-
-        Ok(Reading {
+        Reading {
             cpu_load,
             ram_load,
-            cpu_temp_c,
+            cpu_temp_c: None,
             // Fan: sysinfo does not expose RPM; on Windows it comes from HWiNFO (see below).
             fan_rpm: None,
             cpu_temp_id: None,
             fan_id: None,
             sensors: Vec::new(),
-        })
+        }
+    }
+
+    /// Adds `sysinfo`'s CPU temperature estimate to `r`. Refreshing the thermal
+    /// components is the costly part of a read, so sources with a better
+    /// backend call this only when that backend has no CPU sensor.
+    pub fn fill_cpu_temp(&mut self, r: &mut Reading) {
+        self.components.refresh(false);
+        r.cpu_temp_c = self.cpu_temperature();
+    }
+}
+
+impl SensorSource for SysinfoSource {
+    fn read(&mut self) -> Result<Reading> {
+        let mut r = self.read_load();
+        self.fill_cpu_temp(&mut r);
+        Ok(r)
     }
 }
 
@@ -959,7 +974,7 @@ impl Default for WindowsSource {
 #[cfg(windows)]
 impl SensorSource for WindowsSource {
     fn read(&mut self) -> Result<Reading> {
-        let mut r = self.sys.read()?;
+        let mut r = self.sys.read_load();
 
         let latest = match &self.sidecar {
             Some(sc) => sc.latest(),
@@ -1003,9 +1018,14 @@ impl SensorSource for WindowsSource {
         }
 
         // Values from the HWiNFO shared memory carry no sensor id.
-        if let Some(t) = temp {
-            r.cpu_temp_c = Some(t);
-            r.cpu_temp_id = temp_id;
+        // sysinfo's estimate is only read when nothing better exists, since
+        // refreshing its components is the costly part.
+        match temp {
+            Some(t) => {
+                r.cpu_temp_c = Some(t);
+                r.cpu_temp_id = temp_id;
+            }
+            None => self.sys.fill_cpu_temp(&mut r),
         }
         if let Some(f) = fan {
             r.fan_rpm = Some(f);
