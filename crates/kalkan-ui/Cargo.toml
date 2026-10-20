@@ -18,12 +18,12 @@ kalkan-core = { path = "../kalkan-core" }
 # Only the winit backend (X11 + Wayland on Linux) with the software renderer:
 # no OpenGL/femtovg stack, no accesskit, no Slint system tray (the app uses
 # `tray-icon`). Keeps the resident memory of the tray app low.
-slint = { version = "1.8.0", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
+slint = { version = "1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
 anyhow.workspace = true
 dirs.workspace = true
 
 [build-dependencies]
-slint-build = "1.8.0"
+slint-build = "1.18.1"
 
 # Embeds the app icon in the Windows .exe (Explorer, taskbar, shortcuts).
 [target.'cfg(windows)'.build-dependencies]
@@ -48,7 +48,6 @@ copyright = "2026, Kalkan Monitor RS contributors"
 section = "utils"
 priority = "optional"
 depends = "$auto"
-recommends = "libgl1"
 extended-description = """\
 Sends the CPU temperature to the display of Kalkan Alpha 240, Alpha 360 and \
 Alpha 360-W (round LCD, temperature only) and Delta V2 240 and Delta V2 360 \
