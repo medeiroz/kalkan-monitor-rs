@@ -35,6 +35,23 @@ mod worker;
 
 slint::include_modules!();
 
+thread_local! {
+    /// Pushes the latest reading into the window (selectors, dashboard,
+    /// preview). Set once on the UI thread; called by the 1 s timer while the
+    /// window is visible and by `show` right after the window comes back from
+    /// the tray, so it never shows stale data.
+    static REFRESH_UI: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
+}
+
+/// Runs [`REFRESH_UI`] (UI thread only).
+fn refresh_ui() {
+    REFRESH_UI.with(|r| {
+        if let Some(f) = r.borrow().as_ref() {
+            f();
+        }
+    });
+}
+
 /// Map of the sources chosen for each display field. Temperature and fan hold
 /// the actual choice (a sensor id survives the sensor list changing); the
 /// usage field is still an index into its ComboBox.
@@ -397,6 +414,9 @@ fn main() -> anyhow::Result<()> {
         let ui_w = ui.as_weak();
         move || {
             let _ = ui_w.upgrade_in_event_loop(|ui| {
+                // The timer skips the UI while the window is hidden: catch up
+                // before it is drawn.
+                refresh_ui();
                 let _ = ui.show();
                 ui.window().set_minimized(false);
                 // A background app keeps its window behind the others otherwise.
@@ -584,14 +604,21 @@ fn main() -> anyhow::Result<()> {
     // the PC → display cadence is always the same).
     let timer = Timer::default();
     {
-        let (ui_w, source, mapping, last, frame, options) = (
-            ui.as_weak(),
-            source.clone(),
-            mapping.clone(),
-            last.clone(),
-            frame.clone(),
-            options.clone(),
-        );
+        let (ui_w, mapping, last, frame, options) =
+            (ui.as_weak(), mapping.clone(), last.clone(), frame.clone(), options.clone());
+        let refresh: Box<dyn Fn()> = Box::new(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let (m, r) = (mapping.borrow(), last.borrow());
+            refresh_options(&ui, &m, &mut options.borrow_mut(), &r);
+            update_dashboard(&ui, &m, &r);
+            let sending = ui.get_conn_state() == ConnState::Connected;
+            update_display(&ui, &m, &r, *frame.borrow(), sending);
+        });
+        REFRESH_UI.with(|r| *r.borrow_mut() = Some(refresh));
+    }
+    {
+        let (ui_w, source, mapping, last, frame) =
+            (ui.as_weak(), source.clone(), mapping.clone(), last.clone(), frame.clone());
         // The device lives on its own thread, so blocking port I/O stays out of
         // this timer: only plain values go over, and results come back through
         // a weak handle, applied on the UI thread.

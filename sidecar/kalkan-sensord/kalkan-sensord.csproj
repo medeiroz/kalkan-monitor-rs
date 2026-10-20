@@ -24,7 +24,24 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
     <LangVersion>latest</LangVersion>
+
+    <!--
+      Memory footprint: this is a tiny 1 Hz loop, so favour a small heap over
+      throughput. Workstation, non-concurrent GC (no background GC thread/heap),
+      no dynamic PGO instrumentation, and resource-key exception messages.
+      NO trimming: LibreHardwareMonitor relies on reflection.
+    -->
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <RetainVMGarbageCollection>false</RetainVMGarbageCollection>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 0-9: higher compacts more eagerly to keep the heap small. -->
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- LibreHardwareMonitor (MPL-2.0). Ships the signed kernel driver. -->

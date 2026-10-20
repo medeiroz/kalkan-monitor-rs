@@ -35,13 +35,37 @@ sealed class UpdateVisitor : IVisitor
     public void VisitParameter(IParameter parameter) { }
 }
 
-// A sensor picked for the CPU temperature or the fan: its value and Identifier.
-readonly record struct Pick(float Value, string Id);
+// A sensor picked for the CPU temperature or the fan: its value and the
+// JSON-escaped string literal of its Identifier.
+readonly record struct Pick(float Value, string IdJson);
+
+// Per-sensor strings derived once instead of every second. `Name` is the
+// source the derived strings were built from; if LHM ever renames the sensor
+// the entry is rebuilt.
+sealed class SensorInfo
+{
+    public required string Name;
+    public required string Lower;   // Name.ToLowerInvariant()
+    public required string IdJson;  // Str(Identifier.ToString())
+    public required string NameJson; // Str(Name)
+}
+
+// Per-hardware JSON fragment `,"hardware":"…","hardware_type":"…"`.
+sealed class HardwareInfo
+{
+    public required string Name;
+    public required string Fragment;
+}
 
 static class Program
 {
     static readonly string[] CpuTempKeys = { "tctl", "tdie", "package", "core (max", "core" };
     static readonly string[] FanKeys = { "pump", "cpu", "aio", "water", "liquid" };
+
+    // Keyed by object identity: LHM keeps the same ISensor/IHardware instances
+    // for the life of the Computer.
+    static readonly Dictionary<ISensor, SensorInfo> SensorCache = new(ReferenceEqualityComparer.Instance);
+    static readonly Dictionary<IHardware, HardwareInfo> HardwareCache = new(ReferenceEqualityComparer.Instance);
 
     static int Main(string[] args)
     {
@@ -77,6 +101,12 @@ static class Program
             return 0;
         }
 
+        // Reused every iteration (Clear keeps the capacity) instead of building
+        // new builders/strings each second.
+        var list = new StringBuilder(4096);
+        var line = new StringBuilder(4096);
+        bool trimmed = false;
+
         try
         {
             while (true)
@@ -86,7 +116,7 @@ static class Program
                 Pick? cpuPref = null, tempAny = null;
                 Pick? fanPref = null, fanAny = null;
 
-                var list = new StringBuilder();
+                list.Clear();
                 foreach (IHardware hw in computer.Hardware)
                     Scan(hw, ref cpuPref, ref tempAny, ref fanPref, ref fanAny, list);
 
@@ -96,11 +126,23 @@ static class Program
                 Pick? temp = cpuPref ?? tempAny;
                 Pick? fan = fanPref ?? fanAny;
 
-                stdout.WriteLine(
-                    "{\"cpu_temp_c\":" + Num(temp?.Value) + ",\"cpu_temp_id\":" + Id(temp) +
-                    ",\"fan_rpm\":" + Num(fan?.Value) + ",\"fan_id\":" + Id(fan) +
-                    ",\"sensors\":[" + list + "]}");
+                line.Clear();
+                line.Append("{\"cpu_temp_c\":"); AppendNum(line, temp?.Value);
+                line.Append(",\"cpu_temp_id\":").Append(temp is Pick t ? t.IdJson : "null");
+                line.Append(",\"fan_rpm\":"); AppendNum(line, fan?.Value);
+                line.Append(",\"fan_id\":").Append(fan is Pick f ? f.IdJson : "null");
+                line.Append(",\"sensors\":[").Append(list).Append("]}");
+                stdout.WriteLine(line);
                 stdout.Flush();
+
+                // Once, after the first full pass: compact away the transient
+                // garbage from LHM's hardware detection so the steady-state heap
+                // starts small. Not repeated — the loop itself allocates little.
+                if (!trimmed)
+                {
+                    trimmed = true;
+                    GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                }
 
                 Thread.Sleep(1000);
             }
@@ -117,14 +159,16 @@ static class Program
                      ref Pick? fanPref, ref Pick? fanAny, StringBuilder list)
     {
         bool isCpu = hw.HardwareType == HardwareType.Cpu;
+        HardwareInfo? hwInfo = null; // built lazily: only hardware with listed sensors needs it
         foreach (ISensor s in hw.Sensors)
         {
             if (s.Value is not float v || float.IsNaN(v) || float.IsInfinity(v)) continue;
-            string name = s.Name.ToLowerInvariant();
 
             if (s.SensorType == SensorType.Temperature && v > 0f && v <= 150f)
             {
-                var pick = new Pick(v, s.Identifier.ToString());
+                SensorInfo info = GetInfo(s);
+                string name = info.Lower;
+                var pick = new Pick(v, info.IdJson);
                 tempAny ??= pick;
                 if (cpuPref is null && (isCpu || Matches(name, CpuTempKeys)))
                 {
@@ -132,35 +176,68 @@ static class Program
                     if (isCpu && Matches(name, CpuTempKeys)) cpuPref = pick;
                     else if (!isCpu && Matches(name, CpuTempKeys)) cpuPref = pick;
                 }
-                Append(list, hw, s, "temp", v);
+                Append(list, hwInfo ??= GetInfo(hw), info, "temp", v);
             }
             else if (s.SensorType == SensorType.Fan && v > 0f && v < 100000f)
             {
-                var pick = new Pick(v, s.Identifier.ToString());
+                SensorInfo info = GetInfo(s);
+                var pick = new Pick(v, info.IdJson);
                 fanAny ??= pick;
-                if (fanPref is null && Matches(name, FanKeys)) fanPref = pick;
-                Append(list, hw, s, "fan", v);
+                if (fanPref is null && Matches(info.Lower, FanKeys)) fanPref = pick;
+                Append(list, hwInfo ??= GetInfo(hw), info, "fan", v);
             }
         }
         foreach (IHardware sub in hw.SubHardware)
             Scan(sub, ref cpuPref, ref tempAny, ref fanPref, ref fanAny, list);
     }
 
-    static void Append(StringBuilder list, IHardware hw, ISensor s, string kind, float v)
+    static SensorInfo GetInfo(ISensor s)
+    {
+        string name = s.Name;
+        if (SensorCache.TryGetValue(s, out SensorInfo? info) && (object)info.Name == name)
+            return info;
+        info = new SensorInfo
+        {
+            Name = name,
+            Lower = name.ToLowerInvariant(),
+            IdJson = Str(s.Identifier.ToString()),
+            NameJson = Str(name),
+        };
+        SensorCache[s] = info;
+        return info;
+    }
+
+    static HardwareInfo GetInfo(IHardware hw)
+    {
+        string name = hw.Name;
+        if (HardwareCache.TryGetValue(hw, out HardwareInfo? info) && (object)info.Name == name)
+            return info;
+        info = new HardwareInfo
+        {
+            Name = name,
+            Fragment = ",\"hardware\":" + Str(name) + ",\"hardware_type\":" + Str(hw.HardwareType.ToString()),
+        };
+        HardwareCache[hw] = info;
+        return info;
+    }
+
+    static void Append(StringBuilder list, HardwareInfo hw, SensorInfo s, string kind, float v)
     {
         if (list.Length > 0) list.Append(',');
-        list.Append("{\"id\":").Append(Str(s.Identifier.ToString()))
-            .Append(",\"hardware\":").Append(Str(hw.Name))
-            .Append(",\"hardware_type\":").Append(Str(hw.HardwareType.ToString()))
-            .Append(",\"name\":").Append(Str(s.Name))
+        list.Append("{\"id\":").Append(s.IdJson)
+            .Append(hw.Fragment)
+            .Append(",\"name\":").Append(s.NameJson)
             .Append(",\"kind\":\"").Append(kind)
-            .Append("\",\"value\":").Append(Num(v)).Append('}');
+            .Append("\",\"value\":");
+        AppendNum(list, v);
+        list.Append('}');
     }
 
     // JSON string literal, ASCII-only: whatever the console code page, the Rust
     // side always receives valid UTF-8. A lone UTF-16 surrogate (which some
     // drivers leave in corrupted names) is not valid JSON text for the parser,
     // so it is replaced by U+FFFD instead of being escaped as-is.
+    // Only called when (re)building the per-sensor/per-hardware caches.
     static string Str(string text)
     {
         var sb = new StringBuilder("\"");
@@ -204,9 +281,11 @@ static class Program
         return false;
     }
 
-    // JSON for a picked sensor's id, or null when nothing was picked.
-    static string Id(Pick? p) => p is Pick x ? Str(x.Id) : "null";
-
-    static string Num(float? v) =>
-        v is float f ? f.ToString("0.##", CultureInfo.InvariantCulture) : "null";
+    // Same text as f.ToString("0.##", InvariantCulture), formatted straight into
+    // the builder (no intermediate string); "null" when there is no value.
+    static void AppendNum(StringBuilder sb, float? v)
+    {
+        if (v is float f) sb.Append(CultureInfo.InvariantCulture, $"{f:0.##}");
+        else sb.Append("null");
+    }
 }

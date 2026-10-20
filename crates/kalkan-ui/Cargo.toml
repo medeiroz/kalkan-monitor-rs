@@ -15,7 +15,10 @@ path = "src/main.rs"
 
 [dependencies]
 kalkan-core = { path = "../kalkan-core" }
-slint = "1.8.0"
+# Only the winit backend (X11 + Wayland on Linux) with the software renderer:
+# no OpenGL/femtovg stack, no accesskit, no Slint system tray (the app uses
+# `tray-icon`). Keeps the resident memory of the tray app low.
+slint = { version = "1.8.0", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
 anyhow.workspace = true
 dirs.workspace = true
 
