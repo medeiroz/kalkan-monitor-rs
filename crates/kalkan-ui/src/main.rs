@@ -601,6 +601,11 @@ fn main() -> anyhow::Result<()> {
             slint::TimerMode::Repeated,
             Duration::from_millis(1000),
             move || {
+                // Hidden in the tray or minimized: nobody sees the dashboard,
+                // so the UI work below is skipped. The next tick after it
+                // reappears catches it up.
+                let ui = ui_w.upgrade();
+                let visible = ui.as_ref().is_some_and(|ui| ui.window().is_visible() && !ui.window().is_minimized());
                 let Ok(reading) = source.borrow_mut().read() else { return };
                 *last.borrow_mut() = reading.clone();
                 mapping.borrow_mut().max.update(&reading);
@@ -614,13 +619,21 @@ fn main() -> anyhow::Result<()> {
                         i
                     }
                 };
-                if let Some(ui) = ui_w.upgrade() {
-                    refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading);
-                    device.push(display_fields(&mapping.borrow(), &reading));
-                    update_dashboard(&ui, &mapping.borrow(), &reading);
-                    let sending = ui.get_conn_state() == ConnState::Connected;
-                    update_display(&ui, &mapping.borrow(), &reading, fi, sending);
+                // One frame per second to the display, every tick, whether or
+                // not the value changed and whether or not the window is
+                // visible. The cooler expects this cadence: never skip it.
+                device.push(display_fields(&mapping.borrow(), &reading));
+                let Some(ui) = ui else { return };
+                if ui.get_ui_active() != visible {
+                    ui.set_ui_active(visible);
                 }
+                if !visible {
+                    return;
+                }
+                refresh_options(&ui, &mapping.borrow(), &mut options.borrow_mut(), &reading);
+                update_dashboard(&ui, &mapping.borrow(), &reading);
+                let sending = ui.get_conn_state() == ConnState::Connected;
+                update_display(&ui, &mapping.borrow(), &reading, fi, sending);
             },
         );
     }

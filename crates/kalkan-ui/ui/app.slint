@@ -76,6 +76,8 @@ component NavItem inherits Rectangle {
 // ---------------------------------------------------------------- status pill
 component StatusPill inherits Rectangle {
     in property <ConnState> state;
+    // False while the window is hidden: stops the pulse so nothing keeps asking for frames.
+    in property <bool> active: true;
     property <string> label:
         state == ConnState.connected ? "Connected"
         : state == ConnState.connecting ? "Connecting…"
@@ -109,7 +111,7 @@ component StatusPill inherits Rectangle {
                 background: root.state == ConnState.connected ? root.tone : transparent;
                 border-width: 2px;
                 border-color: root.tone;
-                opacity: root.state == ConnState.connecting ? 0.5 : 1.0;
+                opacity: (root.state == ConnState.connecting && root.active) ? 0.5 : 1.0;
                 animate opacity { duration: 1000ms; iteration-count: -1; direction: alternate; }
             }
         }
@@ -679,6 +681,8 @@ export component AppWindow inherits Window {
     callback model-changed(int);
 
     // ---- preferences ----
+    // False while the window is hidden or minimized (set by the UI timer).
+    in-out property <bool> ui-active: true;
     in-out property <bool> autostart: false;
     in property <string> autostart-error: "";
     callback autostart-toggled(bool);
@@ -720,7 +724,7 @@ export component AppWindow inherits Window {
                         spacing: 4px;
                         HorizontalLayout {
                             alignment: start;
-                            StatusPill { state: root.conn-state; }
+                            StatusPill { state: root.conn-state; active: root.ui-active; }
                         }
                         if root.conn-state == ConnState.connected && root.firmware-short != "" : Text {
                             text: root.firmware-short;
@@ -970,7 +974,7 @@ export component AppWindow inherits Window {
                             spacing: 8px;
                             HorizontalLayout {
                                 spacing: 10px;
-                                StatusPill { state: root.conn-state; }
+                                StatusPill { state: root.conn-state; active: root.ui-active; }
                                 Rectangle { horizontal-stretch: 1; }
                             }
                             Text { text: root.device-label; color: Palette.ink; font-size: 16px; font-weight: 800; overflow: elide; }

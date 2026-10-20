@@ -466,4 +466,17 @@ mod tests {
         // The thread ends and drops the sender.
         assert!(rx.recv_timeout(Duration::from_secs(5)).is_err());
     }
+
+    #[test]
+    fn an_unchanged_value_is_still_sent_every_tick() {
+        // The display must get one frame per second even when nothing changed.
+        let rig = Rig::new();
+        let mut open = || rig.open();
+        let mut link = Link::default();
+        let t0 = Instant::now();
+        for i in 0..5 {
+            link.step(&f(40), t0 + Duration::from_secs(i), &mut open);
+        }
+        assert_eq!(rig.sent(), vec![f(40); 5]);
+    }
 }
