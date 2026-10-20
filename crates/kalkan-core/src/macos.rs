@@ -21,7 +21,7 @@
 
 use anyhow::Result;
 
-use crate::sensors::{Reading, SensorKind, SensorSource, SensorValue, SysinfoSource};
+use crate::sensors::{Reading, SensorKind, SensorSource, SensorValue, SysinfoSource, Wanted};
 
 #[cfg(target_os = "macos")]
 mod iokit;
@@ -319,7 +319,20 @@ pub struct MacSample {
 /// Where a [`MacSource`] gets its raw samples. The real one is the IOKit
 /// backend; tests plug in a fake.
 pub trait MacBackend: Send {
-    fn sample(&mut self) -> MacSample;
+    /// With `Some`, HID sensors that [`hid_wanted`] rejects may be skipped:
+    /// reading each one costs about a millisecond.
+    fn sample(&mut self, wanted: Option<&Wanted>) -> MacSample;
+}
+
+/// Whether the HID sensor `product` is needed to fill the display: the ones
+/// behind the automatic CPU temperature, the GPU ones for Max CPU/GPU, and
+/// the ones picked by hand. Sensors [`classify_hid`] does not know never reach
+/// the sensor list, so they are never needed.
+pub fn hid_wanted(product: &str, w: &Wanted) -> bool {
+    let Some(info) = classify_hid(product) else { return false };
+    info.group != HidGroup::Other
+        || (w.gpu && info.hardware_type.to_ascii_lowercase().starts_with("gpu"))
+        || w.ids.iter().any(|id| id.strip_prefix("iohid/") == Some(product.trim()))
 }
 
 /// A plausible temperature: sensors that are not connected read 0 or
@@ -446,6 +459,7 @@ pub struct MacSource {
     sys: SysinfoSource,
     chip: String,
     backend: Option<Box<dyn MacBackend>>,
+    wanted: Option<Wanted>,
 }
 
 impl MacSource {
@@ -461,7 +475,7 @@ impl MacSource {
 
     /// A source over a custom backend, for tests.
     pub fn with_backend(chip: String, backend: Box<dyn MacBackend>) -> Self {
-        Self { sys: SysinfoSource::new(), chip, backend: Some(backend) }
+        Self { sys: SysinfoSource::new(), chip, backend: Some(backend), wanted: None }
     }
 }
 
@@ -473,13 +487,18 @@ impl Default for MacSource {
 }
 
 impl SensorSource for MacSource {
+    fn set_wanted(&mut self, wanted: Option<Wanted>) {
+        // Sensor ids numbered `#2`... depend on the full list; read it all then.
+        self.wanted = wanted.filter(|w| !w.ids.iter().any(|id| id.contains('#')));
+    }
+
     fn read(&mut self) -> Result<Reading> {
         let mut r = self.sys.read_load();
         let Some(backend) = self.backend.as_mut() else {
             self.sys.fill_cpu_temp(&mut r);
             return Ok(r);
         };
-        let s = backend.sample();
+        let s = backend.sample(self.wanted.as_ref());
         let sensors = build_sensors(&self.chip, &s.hid, &s.smc_temps, &s.fans);
         // sysinfo's guess is the fallback when IOKit has no CPU sensor; it is
         // only read then, since refreshing its components is the costly part.
@@ -758,8 +777,12 @@ mod tests {
 
     struct Fake(MacSample);
     impl MacBackend for Fake {
-        fn sample(&mut self) -> MacSample {
-            self.0.clone()
+        fn sample(&mut self, wanted: Option<&Wanted>) -> MacSample {
+            let mut s = self.0.clone();
+            if let Some(w) = wanted {
+                s.hid.retain(|h| hid_wanted(&h.product, w));
+            }
+            s
         }
     }
 
@@ -777,5 +800,36 @@ mod tests {
         assert_eq!(r.sensors.len(), 4);
         assert_eq!(r.cpu_temp_id.as_deref(), Some(CPU_DIE_AVERAGE_ID));
         assert_eq!(r.fan_id.as_deref(), Some("smc/F0Ac"));
+    }
+
+    #[test]
+    fn lean_reading_keeps_what_feeds_the_display() {
+        let sample = || MacSample {
+            hid: vec![hid("PMU tdie1", 40.0), hid("PMU tdie2", 60.0), hid("NAND CH0 temp", 30.0), hid("GPU MTR Temp Sensor1", 45.0)],
+            smc_temps: vec![],
+            fans: vec![FanReading { index: 0, name: None, rpm: 1500.0 }],
+        };
+        let ids = |r: &Reading| r.sensors.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
+        let mut src = MacSource::with_backend("Apple M1".into(), Box::new(Fake(sample())));
+        let full = src.read().unwrap();
+        assert!(ids(&full).contains(&"iohid/NAND CH0 temp".to_string()));
+
+        // Automatic temperature: the CPU die sensors and the fans only.
+        src.set_wanted(Some(Wanted::default()));
+        let lean = src.read().unwrap();
+        assert_eq!(lean.cpu_temp_c, Some(50.0));
+        assert_eq!(lean.fan_rpm, Some(1500));
+        assert!(!ids(&lean).contains(&"iohid/NAND CH0 temp".to_string()));
+        assert!(!ids(&lean).iter().any(|id| id.contains("GPU")));
+
+        // Max CPU/GPU also needs the GPU; a hand-picked sensor is kept.
+        src.set_wanted(Some(Wanted { ids: vec!["iohid/NAND CH0 temp".into()], gpu: true }));
+        let lean = src.read().unwrap();
+        assert!(ids(&lean).contains(&"iohid/NAND CH0 temp".to_string()));
+        assert!(lean.sensors.iter().any(|s| s.hardware_type.starts_with("Gpu")));
+
+        // Duplicate-numbered ids depend on the whole list: read everything.
+        src.set_wanted(Some(Wanted { ids: vec!["iohid/X#2".into()], gpu: false }));
+        assert_eq!(ids(&src.read().unwrap()), ids(&full));
     }
 }

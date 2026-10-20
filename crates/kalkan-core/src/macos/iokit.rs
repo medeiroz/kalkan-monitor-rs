@@ -10,9 +10,10 @@ use std::mem::size_of;
 use std::ptr;
 
 use super::{
-    decode_smc, fourcc, parse_fan_name, FanReading, HidTemp, MacBackend, MacSample, SmcKeyData,
+    decode_smc, fourcc, hid_wanted, parse_fan_name, FanReading, HidTemp, MacBackend, MacSample, SmcKeyData,
     SmcTempReading, SMC_CMD_READ_BYTES, SMC_CMD_READ_KEYINFO, SMC_SELECTOR, SMC_TEMPS,
 };
+use crate::sensors::Wanted;
 
 type CFTypeRef = *const c_void;
 type CFIndex = isize;
@@ -187,10 +188,13 @@ impl Hid {
         }
     }
 
-    fn sample(&self) -> Vec<HidTemp> {
+    fn sample(&self, wanted: Option<&Wanted>) -> Vec<HidTemp> {
         let _ = (&self.client, &self.services); // alive for as long as `named`
         let mut out = Vec::new();
         for (svc, name) in &self.named {
+            if wanted.is_some_and(|w| !hid_wanted(name, w)) {
+                continue;
+            }
             // SAFETY: `svc` is kept alive by `self.services`; the event is
             // released right after reading it.
             unsafe {
@@ -360,8 +364,8 @@ impl IoKitBackend {
 }
 
 impl MacBackend for IoKitBackend {
-    fn sample(&mut self) -> MacSample {
-        let hid = self.hid.as_ref().map(Hid::sample).unwrap_or_default();
+    fn sample(&mut self, wanted: Option<&Wanted>) -> MacSample {
+        let hid = self.hid.as_ref().map(|h| h.sample(wanted)).unwrap_or_default();
         let (smc_temps, fans) = self.smc.as_ref().map(Smc::sample).unwrap_or_default();
         MacSample { hid, smc_temps, fans }
     }

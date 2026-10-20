@@ -61,9 +61,24 @@ impl SensorValue {
     }
 }
 
+/// What a reading has to contain when nobody is looking at the sensor list:
+/// just what feeds the display. See [`SensorSource::set_wanted`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Wanted {
+    /// Ids of the temperature sensors picked by hand.
+    pub ids: Vec<String>,
+    /// Whether the GPU temperatures are needed too (Max CPU/GPU).
+    pub gpu: bool,
+}
+
 /// Anything able to produce a `Reading`.
 pub trait SensorSource: Send {
     fn read(&mut self) -> Result<Reading>;
+
+    /// Narrows later readings to what feeds the display (`Some`), or goes back
+    /// to everything (`None`). A source may ignore this and always read all;
+    /// the automatic CPU temperature and the fans are always included.
+    fn set_wanted(&mut self, _wanted: Option<Wanted>) {}
 }
 
 /// Cross-platform source based on `sysinfo`.

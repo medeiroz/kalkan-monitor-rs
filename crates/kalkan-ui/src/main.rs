@@ -19,6 +19,7 @@ use std::time::Duration;
 use kalkan_core::{
     available_serial_ports, default_source, fan_options, load_text, select_fan, select_temp, temp_options,
     CoolerModel, FanSource, Fields, Firmware, MaxTracker, Reading, Settings, same_layout, SourceOption, TempSource,
+    Wanted,
 };
 use slint::{ComponentHandle, Model, SharedString, Timer, VecModel};
 
@@ -284,6 +285,18 @@ fn display_fields(m: &Mapping, r: &Reading) -> Fields {
     let fan = fan_value(r, &m.fan).map(|f| f.min(0xFFFF) as u16).unwrap_or(0);
     let load = load_value(r, m.load).map(|l| l.round().clamp(0.0, 100.0) as u8).unwrap_or(0);
     Fields { temp, fan, load }
+}
+
+/// The sensors the display needs with the mapping `m`, for a source that can
+/// skip the rest while the window is hidden.
+fn display_wanted(m: &Mapping) -> Wanted {
+    Wanted {
+        ids: match &m.temp {
+            TempSource::Sensor(id) => vec![id.clone()],
+            _ => Vec::new(),
+        },
+        gpu: m.temp == TempSource::MaxCpuGpu,
+    }
 }
 
 /// Short firmware text for the sidebar ("Firmware 1.3").
@@ -602,10 +615,12 @@ fn main() -> anyhow::Result<()> {
             Duration::from_millis(1000),
             move || {
                 // Hidden in the tray or minimized: nobody sees the dashboard,
-                // so the UI work below is skipped. The next tick after it
-                // reappears catches it up.
+                // so the sources may read just what feeds the display, and the
+                // UI work below is skipped. Decided before reading, so the
+                // first tick after it reappears already has the full list.
                 let ui = ui_w.upgrade();
                 let visible = ui.as_ref().is_some_and(|ui| ui.window().is_visible() && !ui.window().is_minimized());
+                source.borrow_mut().set_wanted((!visible).then(|| display_wanted(&mapping.borrow())));
                 let Ok(reading) = source.borrow_mut().read() else { return };
                 *last.borrow_mut() = reading.clone();
                 mapping.borrow_mut().max.update(&reading);

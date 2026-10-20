@@ -42,7 +42,7 @@ pub use selection::{
     fan_options, load_text, same_layout, select_fan, select_temp, temp_options, FanSource, MaxTracker,
     SourceOption, TempSource,
 };
-pub use sensors::{default_source, Reading, SensorKind, SensorSource, SensorValue, SysinfoSource};
+pub use sensors::{default_source, Reading, SensorKind, SensorSource, SensorValue, SysinfoSource, Wanted};
 pub use settings::{CoolerModel, Settings};
 pub use transport::{HidTransport, SerialTransport, Transport};
 pub use v1_3::{open_display, BAUD};
