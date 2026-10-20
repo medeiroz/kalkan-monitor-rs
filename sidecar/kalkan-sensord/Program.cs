@@ -67,6 +67,12 @@ static class Program
     static readonly Dictionary<ISensor, SensorInfo> SensorCache = new(ReferenceEqualityComparer.Instance);
     static readonly Dictionary<IHardware, HardwareInfo> HardwareCache = new(ReferenceEqualityComparer.Instance);
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentProcess();
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", EntryPoint = "K32EmptyWorkingSet")]
+    static extern bool K32EmptyWorkingSet(IntPtr process);
+
     static int Main(string[] args)
     {
         bool dump = Array.IndexOf(args, "--dump") >= 0;
@@ -106,6 +112,7 @@ static class Program
         var list = new StringBuilder(4096);
         var line = new StringBuilder(4096);
         bool trimmed = false;
+        int ticks = 0;
 
         try
         {
@@ -142,6 +149,15 @@ static class Program
                 {
                     trimmed = true;
                     GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                }
+                // LHM's own hardware polling allocates garbage every second, and on
+                // CPUs with a big cache the GC's gen0 budget is large, so memory
+                // climbed for minutes before the first collection. Collect and
+                // return the freed pages to Windows every 10 s to keep it flat.
+                else if (++ticks % 10 == 0)
+                {
+                    GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: false);
+                    K32EmptyWorkingSet(GetCurrentProcess());
                 }
 
                 Thread.Sleep(1000);
@@ -194,7 +210,7 @@ static class Program
     static SensorInfo GetInfo(ISensor s)
     {
         string name = s.Name;
-        if (SensorCache.TryGetValue(s, out SensorInfo? info) && (object)info.Name == name)
+        if (SensorCache.TryGetValue(s, out SensorInfo? info) && info.Name == name)
             return info;
         info = new SensorInfo
         {
@@ -210,7 +226,7 @@ static class Program
     static HardwareInfo GetInfo(IHardware hw)
     {
         string name = hw.Name;
-        if (HardwareCache.TryGetValue(hw, out HardwareInfo? info) && (object)info.Name == name)
+        if (HardwareCache.TryGetValue(hw, out HardwareInfo? info) && info.Name == name)
             return info;
         info = new HardwareInfo
         {
