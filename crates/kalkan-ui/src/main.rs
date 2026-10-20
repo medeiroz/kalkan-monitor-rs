@@ -408,6 +408,22 @@ fn main() -> anyhow::Result<()> {
     let ui = AppWindow::new()?;
     ui.set_not_elevated(elev == elevation::Outcome::Degraded);
 
+    // The software renderer repaints only what changed, but Windows clears the
+    // window's buffer on minimize, so restoring left it mostly transparent.
+    // Dirty the whole window when it is restored or resized.
+    {
+        use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
+        let ui_w = ui.as_weak();
+        ui.window().on_winit_window_event(move |_, ev| {
+            if matches!(ev, WindowEvent::Resized(_) | WindowEvent::Occluded(false)) {
+                if let Some(ui) = ui_w.upgrade() {
+                    ui.set_repaint_kick(!ui.get_repaint_kick());
+                }
+            }
+            EventResult::Propagate
+        });
+    }
+
     // Brings the window back (from the tray or from a second instance); safe
     // to call from any thread.
     let show = {

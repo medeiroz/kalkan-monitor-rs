@@ -619,7 +619,10 @@ export component AppWindow inherits Window {
     // Cap = 200 (sidebar) + 2x24 (padding) + 1100 (content cap): at max width the
     // content fills the window with no extra side margins.
     max-width: 1348px;
-    background: Palette.bg;
+    // Toggled on restore to dirty the whole window: the software renderer's partial
+    // repaint otherwise leaves most of it transparent after a minimize (see main.rs).
+    in-out property <bool> repaint-kick: false;
+    background: root.repaint-kick ? #eef1f8 : Palette.bg;
     property <bool> compact: root.width < 800px;
     property <length> side-w: root.compact ? 160px : 200px;
 
