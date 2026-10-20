@@ -31,6 +31,20 @@ fn retry_delay(handshake_fails: u32) -> Duration {
     }
 }
 
+/// Longest wait between attempts while no display is plugged in at all. Each
+/// attempt enumerates the USB/HID devices, which is the app's main cost while
+/// the cooler is absent; a cooler plugged in is picked up within this time.
+const MAX_ABSENT_BACKOFF: Duration = Duration::from_secs(3);
+
+/// Wait before the next open attempt after `absent_fails` consecutive
+/// "no display found" results (0.9, 1.8, 3 s…).
+fn absent_delay(absent_fails: u32) -> Duration {
+    match absent_fails {
+        0 => OPEN_RETRY,
+        n => OPEN_RETRY.saturating_mul(1 << (n - 1).min(8)).min(MAX_ABSENT_BACKOFF),
+    }
+}
+
 /// Connection state reported to the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Conn {
@@ -72,6 +86,8 @@ struct Link {
     last_open: Option<Instant>,
     /// Consecutive failed 1.2 handshakes (drives the backoff).
     handshake_fails: u32,
+    /// Consecutive attempts that found no display at all (drives the backoff).
+    absent_fails: u32,
 }
 
 impl Link {
@@ -89,7 +105,7 @@ impl Link {
     ) -> Option<Status> {
         let mut opened = false;
         if self.device.is_none() {
-            let wait = retry_delay(self.handshake_fails);
+            let wait = retry_delay(self.handshake_fails).max(absent_delay(self.absent_fails));
             if self.last_open.is_some_and(|t| now.saturating_duration_since(t) < wait) {
                 return None;
             }
@@ -98,14 +114,14 @@ impl Link {
                 Ok(d) => {
                     self.device = Some(d);
                     self.handshake_fails = 0;
+                    self.absent_fails = 0;
                     opened = true;
                 }
                 Err(e) => {
-                    if e.downcast_ref::<kalkan_core::HandshakeError>().is_some() {
-                        self.handshake_fails = self.handshake_fails.saturating_add(1);
-                    } else {
-                        self.handshake_fails = 0;
-                    }
+                    let handshake = e.downcast_ref::<kalkan_core::HandshakeError>().is_some();
+                    let absent = e.downcast_ref::<kalkan_core::NotFound>().is_some();
+                    self.handshake_fails = if handshake { self.handshake_fails.saturating_add(1) } else { 0 };
+                    self.absent_fails = if absent { self.absent_fails.saturating_add(1) } else { 0 };
                     return Some(Status::new(Conn::Disconnected, Some(format!("{e}"))));
                 }
             }
@@ -478,5 +494,45 @@ mod tests {
             link.step(&f(40), t0 + Duration::from_secs(i), &mut open);
         }
         assert_eq!(rig.sent(), vec![f(40); 5]);
+    }
+
+    #[test]
+    fn a_missing_cooler_is_polled_less_often_and_found_when_plugged_in() {
+        let opens = AtomicU32::new(0);
+        let ok = AtomicBool::new(false);
+        let rig = Rig::new();
+        let mut open = || -> Result<Box<dyn Display>> {
+            opens.fetch_add(1, SeqCst);
+            if ok.load(SeqCst) {
+                rig.open()
+            } else {
+                Err(kalkan_core::NotFound("none".into()).into())
+            }
+        };
+        let mut link = Link::default();
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        link.step(&f(1), at(0), &mut open).unwrap();
+        link.step(&f(1), at(1000), &mut open).unwrap(); // 0.9 s after the 1st
+        assert_eq!(link.step(&f(1), at(2000), &mut open), None); // 1.8 s needed
+        link.step(&f(1), at(2900), &mut open).unwrap();
+        // From here on, one attempt per 3 s at most.
+        assert_eq!(link.step(&f(1), at(5000), &mut open), None);
+        link.step(&f(1), at(5900), &mut open).unwrap();
+        assert_eq!(opens.load(SeqCst), 4);
+        ok.store(true, SeqCst);
+        assert_eq!(link.step(&f(1), at(7000), &mut open), None);
+        let s = link.step(&f(1), at(8900), &mut open).unwrap();
+        assert_eq!(s.conn, Conn::Connected);
+        assert_eq!(link.absent_fails, 0);
+    }
+
+    #[test]
+    fn absent_delay_backs_off_up_to_the_cap() {
+        assert_eq!(absent_delay(0), OPEN_RETRY);
+        assert_eq!(absent_delay(1), OPEN_RETRY);
+        assert_eq!(absent_delay(2), OPEN_RETRY * 2);
+        assert_eq!(absent_delay(3), MAX_ABSENT_BACKOFF);
+        assert_eq!(absent_delay(u32::MAX), MAX_ABSENT_BACKOFF);
     }
 }
