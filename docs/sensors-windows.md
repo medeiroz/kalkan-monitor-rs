@@ -40,6 +40,15 @@ ignored). Each entry has a stable `id` (the LibreHardwareMonitor `Identifier`),
 Strings are ASCII-only (non-ASCII is `\uXXXX`-escaped). Lines without `sensors`
 still parse (the list is just empty).
 
+**Light/full mode.** The sidecar reads commands on stdin (one per line; unknown
+lines and EOF are ignored): `mode full` (the default: every hardware group),
+`mode light` (only `cpu`, `board`, `controller` plus the groups of the last
+`need`) and `need <groups>` (comma list among `cpu,board,controller,gpu,storage,memory`).
+While the window is hidden or minimized the app switches to light with the
+groups its temperature/fan sources need, so disks (SMART), the GPU and the DIMMs
+are not polled every second; it goes back to full as soon as the window is shown.
+Light lines list only the polled groups' sensors and end with `"mode":"light"`.
+
 ### Choosing what the display shows
 
 The display takes exactly two values (a temperature byte and an RPM `u16`), but

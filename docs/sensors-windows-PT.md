@@ -41,6 +41,16 @@ item tem um `id` estável (o `Identifier` do LibreHardwareMonitor), `hardware`,
 só ASCII (o que não é ASCII vai escapado como `\uXXXX`). Linhas sem `sensors`
 continuam válidas (a lista fica vazia).
 
+**Modo leve/completo.** O sidecar lê comandos no stdin (um por linha; linhas
+desconhecidas e EOF são ignorados): `mode full` (o padrão: todos os grupos de
+hardware), `mode light` (só `cpu`, `board`, `controller` mais os grupos do último
+`need`) e `need <grupos>` (lista separada por vírgula entre `cpu,board,controller,gpu,storage,memory`).
+Com a janela oculta ou minimizada o app passa para o modo leve com os grupos que
+as fontes de temperatura/ventoinha escolhidas precisam, então discos (SMART), GPU
+e DIMMs não são consultados a cada segundo; volta ao completo assim que a janela
+aparece. Linhas do modo leve listam só os sensores dos grupos consultados e
+terminam com `"mode":"light"`.
+
 ### Escolhendo o que o display mostra
 
 O display recebe exatamente dois valores (um byte de temperatura e um `u16` de

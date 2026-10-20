@@ -17,6 +17,17 @@
 // non-zero code — the Rust process treats that as "no data" and falls back.
 //
 // Fixed 1 s cadence so nothing gets overloaded (matches the app's loop).
+//
+// Light/full mode (commands read from stdin, one per line; unknown lines are
+// ignored and EOF is harmless — the sidecar keeps running):
+//     mode full           poll every hardware group (the default at start)
+//     mode light          poll only cpu, board and controller plus the "need" list
+//     need gpu,storage    groups light mode must also poll, among
+//                         cpu,board,controller,gpu,storage,memory (replaces the list)
+// The UI switches to light while its window is hidden, so disks (SMART), the GPU
+// and the DIMMs are not woken every second. Groups are toggled on the polling
+// thread, between two updates. A light line lists only the sensors of the
+// polled groups and ends with `,"mode":"light"`; full lines are unchanged.
 
 using System.Globalization;
 using System.Text;
@@ -57,8 +68,21 @@ sealed class HardwareInfo
     public required string Fragment;
 }
 
+// Mode requested over stdin; written by the stdin thread, applied by the loop.
+sealed class ModeRequest
+{
+    public readonly object Lock = new();
+    public bool Light;
+    public HashSet<string> Need = new();
+    public int Version;
+    public readonly AutoResetEvent Wake = new(false);
+}
+
 static class Program
 {
+    static readonly string[] AllGroups = { "cpu", "board", "controller", "gpu", "storage", "memory" };
+    static readonly string[] BaseGroups = { "cpu", "board", "controller" };
+
     static readonly string[] CpuTempKeys = { "tctl", "tdie", "package", "core (max", "core" };
     static readonly string[] FanKeys = { "pump", "cpu", "aio", "water", "liquid" };
 
@@ -114,17 +138,67 @@ static class Program
         bool trimmed = false;
         int ticks = 0;
 
+        // Hardware is scanned in the order it had at startup (full mode), even
+        // after groups were removed and re-added (LHM appends a re-added group
+        // at the end), so the automatic picks do not depend on mode switches.
+        var rank = new Dictionary<HardwareType, int>();
+        foreach (IHardware hw in computer.Hardware)
+            rank.TryAdd(hw.HardwareType, rank.Count);
+        IHardware[] ordered = Array.Empty<IHardware>();
+        bool reorder = true;
+        computer.HardwareAdded += _ => Volatile.Write(ref reorder, true);
+        computer.HardwareRemoved += _ => Volatile.Write(ref reorder, true);
+
+        var request = new ModeRequest();
+        new Thread(() => ReadCommands(request)) { IsBackground = true, Name = "stdin" }.Start();
+        int applied = 0;
+        bool light = false;
+
         try
         {
             while (true)
             {
+                // Apply a requested mode change here, never while LHM updates.
+                HashSet<string>? need = null;
+                bool wantLight = false;
+                lock (request.Lock)
+                {
+                    if (request.Version != applied)
+                    {
+                        applied = request.Version;
+                        wantLight = request.Light;
+                        need = new HashSet<string>(request.Need);
+                    }
+                }
+                if (need is not null)
+                {
+                    light = wantLight;
+                    var on = new HashSet<string>(light ? BaseGroups : AllGroups);
+                    if (light) on.UnionWith(need);
+                    if (Apply(computer, on))
+                    {
+                        // Removed hardware must not stay alive in the caches.
+                        SensorCache.Clear();
+                        HardwareCache.Clear();
+                        Volatile.Write(ref reorder, true);
+                        trimmed = false; // compact once more after the change
+                    }
+                }
+                if (Volatile.Read(ref reorder))
+                {
+                    Volatile.Write(ref reorder, false);
+                    ordered = computer.Hardware
+                        .OrderBy(h => rank.TryGetValue(h.HardwareType, out int r) ? r : int.MaxValue)
+                        .ToArray();
+                }
+
                 computer.Accept(visitor);
 
                 Pick? cpuPref = null, tempAny = null;
                 Pick? fanPref = null, fanAny = null;
 
                 list.Clear();
-                foreach (IHardware hw in computer.Hardware)
+                foreach (IHardware hw in ordered)
                     Scan(hw, ref cpuPref, ref tempAny, ref fanPref, ref fanAny, list);
 
                 // The picked sensors are reported by Identifier (the same ids as
@@ -138,13 +212,16 @@ static class Program
                 line.Append(",\"cpu_temp_id\":").Append(temp is Pick t ? t.IdJson : "null");
                 line.Append(",\"fan_rpm\":"); AppendNum(line, fan?.Value);
                 line.Append(",\"fan_id\":").Append(fan is Pick f ? f.IdJson : "null");
-                line.Append(",\"sensors\":[").Append(list).Append("]}");
+                line.Append(",\"sensors\":[").Append(list).Append(']');
+                if (light) line.Append(",\"mode\":\"light\"");
+                line.Append('}');
                 stdout.WriteLine(line);
                 stdout.Flush();
 
                 // Once, after the first full pass: compact away the transient
                 // garbage from LHM's hardware detection so the steady-state heap
-                // starts small. Not repeated — the loop itself allocates little.
+                // starts small. Repeated only after a mode change (hardware
+                // groups added/removed) — the loop itself allocates little.
                 if (!trimmed)
                 {
                     trimmed = true;
@@ -160,13 +237,67 @@ static class Program
                     K32EmptyWorkingSet(GetCurrentProcess());
                 }
 
-                Thread.Sleep(1000);
+                // A command wakes the loop early so a mode change applies at once.
+                request.Wake.WaitOne(1000);
             }
         }
         finally
         {
             computer.Close();
         }
+    }
+
+    // Reads mode commands from stdin until EOF, then just stops reading (the
+    // sidecar keeps running in the current mode).
+    static void ReadCommands(ModeRequest request)
+    {
+        try
+        {
+            string? cmd;
+            while ((cmd = Console.In.ReadLine()) is not null)
+            {
+                string[] parts = cmd.Trim().ToLowerInvariant()
+                    .Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (parts.Length == 0) continue;
+                lock (request.Lock)
+                {
+                    if (parts[0] == "mode" && parts.Length == 2 && parts[1] is "full" or "light")
+                        request.Light = parts[1] == "light";
+                    else if (parts[0] == "need")
+                        request.Need = new HashSet<string>(
+                            (parts.Length == 2 ? parts[1] : "")
+                                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                .Where(g => Array.IndexOf(AllGroups, g) >= 0));
+                    else
+                        continue; // unknown command: ignored
+                    request.Version++;
+                }
+                request.Wake.Set();
+            }
+        }
+        catch (Exception)
+        {
+            // No usable stdin: stay in the current mode.
+        }
+    }
+
+    // Enables exactly the hardware groups in `on`; true if anything changed.
+    // LHM adds/removes (and closes) the group's hardware in each setter.
+    static bool Apply(Computer c, HashSet<string> on)
+    {
+        bool changed = false;
+        void Set(bool current, string group, Action<bool> set)
+        {
+            bool want = on.Contains(group);
+            if (current != want) { set(want); changed = true; }
+        }
+        Set(c.IsCpuEnabled, "cpu", v => c.IsCpuEnabled = v);
+        Set(c.IsMotherboardEnabled, "board", v => c.IsMotherboardEnabled = v);
+        Set(c.IsControllerEnabled, "controller", v => c.IsControllerEnabled = v);
+        Set(c.IsGpuEnabled, "gpu", v => c.IsGpuEnabled = v);
+        Set(c.IsStorageEnabled, "storage", v => c.IsStorageEnabled = v);
+        Set(c.IsMemoryEnabled, "memory", v => c.IsMemoryEnabled = v);
+        return changed;
     }
 
     // Scans hardware + sub-hardware, accumulating temp/fan candidates and

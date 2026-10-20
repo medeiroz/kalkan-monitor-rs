@@ -41,11 +41,25 @@ thread_local! {
     /// window is visible and by `show` right after the window comes back from
     /// the tray, so it never shows stale data.
     static REFRESH_UI: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
+    /// Puts the sensor source in light mode while the window is hidden or
+    /// minimized (only what the chosen sources need is polled) and in full
+    /// mode while it is visible (complete sensor lists). Called by the 1 s
+    /// timer and by `show`, so polling resumes as the window comes back.
+    static SYNC_SENSOR_MODE: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
 }
 
 /// Runs [`REFRESH_UI`] (UI thread only).
 fn refresh_ui() {
     REFRESH_UI.with(|r| {
+        if let Some(f) = r.borrow().as_ref() {
+            f();
+        }
+    });
+}
+
+/// Runs [`SYNC_SENSOR_MODE`] (UI thread only).
+fn sync_sensor_mode() {
+    SYNC_SENSOR_MODE.with(|r| {
         if let Some(f) = r.borrow().as_ref() {
             f();
         }
@@ -435,6 +449,10 @@ fn main() -> anyhow::Result<()> {
                 refresh_ui();
                 let _ = ui.show();
                 ui.window().set_minimized(false);
+                // Back to full polling right away, so the selectors are
+                // complete within a second (until then they show the last
+                // full list, see `Planner::merge` in kalkan-core).
+                sync_sensor_mode();
                 // A background app keeps its window behind the others otherwise.
                 #[cfg(target_os = "macos")]
                 macos::activate();
@@ -633,6 +651,16 @@ fn main() -> anyhow::Result<()> {
         REFRESH_UI.with(|r| *r.borrow_mut() = Some(refresh));
     }
     {
+        let (ui_w, source, mapping) = (ui.as_weak(), source.clone(), mapping.clone());
+        let sync: Box<dyn Fn()> = Box::new(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let hidden = !ui.window().is_visible() || ui.window().is_minimized();
+            let m = mapping.borrow();
+            source.borrow_mut().set_light(hidden, &m.temp, &m.fan);
+        });
+        SYNC_SENSOR_MODE.with(|r| *r.borrow_mut() = Some(sync));
+    }
+    {
         let (ui_w, source, mapping, last, frame) =
             (ui.as_weak(), source.clone(), mapping.clone(), last.clone(), frame.clone());
         // The device lives on its own thread, so blocking port I/O stays out of
@@ -664,6 +692,9 @@ fn main() -> anyhow::Result<()> {
                 let ui = ui_w.upgrade();
                 let visible = ui.as_ref().is_some_and(|ui| ui.window().is_visible() && !ui.window().is_minimized());
                 source.borrow_mut().set_wanted((!visible).then(|| display_wanted(&mapping.borrow())));
+                // Light while hidden (also when started with `--tray`), full
+                // while visible; only changes reach the sidecar.
+                sync_sensor_mode();
                 let Ok(reading) = source.borrow_mut().read() else { return };
                 *last.borrow_mut() = reading.clone();
                 mapping.borrow_mut().max.update(&reading);

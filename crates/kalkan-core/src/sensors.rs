@@ -8,6 +8,8 @@
 
 use anyhow::Result;
 
+use crate::selection::{FanSource, TempSource};
+
 /// An instantaneous reading of what the display usually shows.
 #[derive(Debug, Clone, Default)]
 pub struct Reading {
@@ -79,6 +81,13 @@ pub trait SensorSource: Send {
     /// to everything (`None`). A source may ignore this and always read all;
     /// the automatic CPU temperature and the fans are always included.
     fn set_wanted(&mut self, _wanted: Option<Wanted>) {}
+    /// Light mode (`light` = true, e.g. while the window is hidden): the
+    /// backend may stop polling hardware that the chosen `temp`/`fan`
+    /// sources do not need. With `light` = false it polls everything again,
+    /// so the sensor lists are complete. Cheap to call every tick; a no-op
+    /// where the backend has nothing to save (everything but the Windows
+    /// sidecar).
+    fn set_light(&mut self, _light: bool, _temp: &TempSource, _fan: &FanSource) {}
 }
 
 /// Cross-platform source based on `sysinfo`.
@@ -775,6 +784,9 @@ pub(crate) struct SidecarLine {
     pub fan_id: Option<String>,
     /// Empty for old-format lines (no `sensors` key).
     pub sensors: Vec<SensorValue>,
+    /// Produced in light mode (`"mode":"light"`): `sensors` only covers the
+    /// polled hardware groups.
+    pub light: bool,
 }
 
 /// Parses a sidecar JSON line:
@@ -782,7 +794,8 @@ pub(crate) struct SidecarLine {
 /// "sensors":[{"id":"/lpc/0/fan/1","hardware":"NCT6799D",
 /// "hardware_type":"SuperIO","name":"Fan #2","kind":"fan","value":2400}]}`
 /// (values may be `null`; `cpu_temp_id`, `fan_id` and `sensors` are optional,
-/// and malformed entries are skipped).
+/// and malformed entries are skipped). A light-mode line ends with
+/// `"mode":"light"` and lists only the polled groups' sensors.
 ///
 /// Returns `None` if the line is not an object with the `cpu_temp_c` key.
 pub(crate) fn parse_sensor_line(line: &str) -> Option<SidecarLine> {
@@ -800,7 +813,8 @@ pub(crate) fn parse_sensor_line(line: &str) -> Option<SidecarLine> {
         .and_then(|x| x.as_array())
         .map(|a| a.iter().filter_map(parse_sensor_entry).collect())
         .unwrap_or_default();
-    Some(SidecarLine { temp_c, fan_rpm, cpu_temp_id, fan_id, sensors })
+    let light = crate::light::is_light_line(obj);
+    Some(SidecarLine { temp_c, fan_rpm, cpu_temp_id, fan_id, sensors, light })
 }
 
 fn parse_sensor_entry(v: &serde_json::Value) -> Option<SensorValue> {
@@ -827,9 +841,10 @@ fn parse_sensor_entry(v: &serde_json::Value) -> Option<SensorValue> {
 #[cfg(windows)]
 mod sidecar {
     use super::{parse_sensor_line, SensorValue};
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Write};
     use std::path::PathBuf;
     use std::process::{Child, Command, Stdio};
+    use std::sync::mpsc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
@@ -840,23 +855,31 @@ mod sidecar {
         cpu_temp_id: Option<String>,
         fan_id: Option<String>,
         sensors: Vec<SensorValue>,
+        light: bool,
         at: Option<Instant>,
     }
 
     /// Latest sidecar data.
     #[derive(Default)]
     pub struct Latest {
+        /// A recent line was available (the rest is empty otherwise).
+        pub fresh: bool,
         pub temp_c: Option<f32>,
         pub fan_rpm: Option<u32>,
         pub cpu_temp_id: Option<String>,
         pub fan_id: Option<String>,
         pub sensors: Vec<SensorValue>,
+        /// The line came from light mode (partial `sensors`).
+        pub light: bool,
     }
 
     /// Running sidecar process; terminated on `Drop`.
     pub struct Sidecar {
         child: Child,
         state: Arc<Mutex<Shared>>,
+        /// Commands for the sidecar's stdin, written by a thread of their own
+        /// so a sidecar that stops reading can never block the caller.
+        commands: Option<mpsc::Sender<String>>,
     }
 
     /// Resolves the path of `kalkan-sensord.exe`: env `KALKAN_SENSORD`, next to
@@ -894,12 +917,26 @@ mod sidecar {
             let path = resolve_path()?;
             let mut child = Command::new(&path)
                 .creation_flags(CREATE_NO_WINDOW)
-                .stdin(Stdio::null())
+                .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()
                 .ok()?;
             let stdout = child.stdout.take()?;
+            // Mode commands (see `crate::light`). The sidecar ignores EOF on
+            // stdin; it still ends when this process kills it (`Drop`) or,
+            // if this process dies, on its next write to the broken stdout.
+            let commands = child.stdin.take().map(|mut stdin| {
+                let (tx, rx) = mpsc::channel::<String>();
+                std::thread::spawn(move || {
+                    for cmd in rx {
+                        if stdin.write_all(cmd.as_bytes()).and_then(|_| stdin.flush()).is_err() {
+                            break;
+                        }
+                    }
+                });
+                tx
+            });
             let state = Arc::new(Mutex::new(Shared::default()));
             let st = state.clone();
             std::thread::spawn(move || {
@@ -912,12 +949,20 @@ mod sidecar {
                             s.cpu_temp_id = l.cpu_temp_id;
                             s.fan_id = l.fan_id;
                             s.sensors = l.sensors;
+                            s.light = l.light;
                             s.at = Some(Instant::now());
                         }
                     }
                 }
             });
-            Some(Self { child, state })
+            Some(Self { child, state, commands })
+        }
+
+        /// Queues commands (newline-terminated lines) for the sidecar's stdin.
+        pub fn send(&self, cmd: String) {
+            if let Some(tx) = &self.commands {
+                let _ = tx.send(cmd);
+            }
         }
 
         /// Latest reading, if recent (≤ 5 s); otherwise empty.
@@ -925,6 +970,8 @@ mod sidecar {
             if let Ok(s) = self.state.lock() {
                 if matches!(s.at, Some(at) if at.elapsed() < Duration::from_secs(5)) {
                     return Latest {
+                        fresh: true,
+                        light: s.light,
                         temp_c: s.temp_c,
                         fan_rpm: s.fan_rpm,
                         cpu_temp_id: s.cpu_temp_id.clone(),
@@ -959,6 +1006,8 @@ pub struct WindowsSource {
     started: std::time::Instant,
     hwinfo: Option<hwinfo_dll::HwinfoSource>,
     hwinfo_tried: bool,
+    /// Light/full mode of the sidecar and the last full sensor list.
+    planner: crate::light::Planner,
 }
 
 /// How long to wait for the sidecar to deliver its first reading before turning
@@ -975,6 +1024,7 @@ impl WindowsSource {
             started: std::time::Instant::now(),
             hwinfo: None,
             hwinfo_tried: false,
+            planner: Default::default(),
         }
     }
 }
@@ -997,7 +1047,16 @@ impl SensorSource for WindowsSource {
         };
         let (mut temp, mut fan) = (latest.temp_c, latest.fan_rpm);
         let (mut temp_id, mut fan_id) = (latest.cpu_temp_id, latest.fan_id);
-        let mut sensors = latest.sensors;
+        // A light line only lists the polled groups: show it over the last
+        // full list so the selectors keep their entries (see `Planner::merge`).
+        let mut sensors = if !latest.fresh {
+            latest.sensors
+        } else if latest.light {
+            self.planner.merge(&latest.sensors)
+        } else {
+            self.planner.learn_full(&latest.sensors, temp_id.as_deref(), fan_id.as_deref());
+            latest.sensors
+        };
 
         // Sidecar missing, or no data after the grace period (e.g. HVCI without
         // PawnIO): try the original app's HWiNFO engine once.
@@ -1048,6 +1107,14 @@ impl SensorSource for WindowsSource {
         }
         r.sensors = sensors;
         Ok(r)
+    }
+
+    fn set_light(&mut self, light: bool, temp: &TempSource, fan: &FanSource) {
+        if let Some(sc) = &self.sidecar {
+            if let Some(cmd) = self.planner.update(light, temp, fan) {
+                sc.send(cmd);
+            }
+        }
     }
 }
 

@@ -13,6 +13,7 @@
 pub mod device;
 pub mod firmware;
 pub mod hwmon;
+mod light;
 pub mod macos;
 pub mod naming;
 pub mod selection;
